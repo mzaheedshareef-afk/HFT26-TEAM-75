@@ -1,5 +1,15 @@
-import { Cpu, FileCode2, HardDrive, Timer } from 'lucide-react';
-import type { CodingQuestion, QuestionDifficulty } from '../../types/assessment';
+import {
+  CheckSquare,
+  Cpu,
+  FileCode2,
+  HardDrive,
+  Lock,
+  Timer,
+} from 'lucide-react';
+import type {
+  CodingQuestion,
+  QuestionDifficulty,
+} from '../../types/assessment';
 
 interface CodingQuestionPanelProps {
   question: CodingQuestion | null;
@@ -35,6 +45,9 @@ export function CodingQuestionPanel({
   }
 
   const { constraints } = question;
+  const publicCount = question.public_test_cases.length;
+  const hiddenCount = question.hidden_test_cases_count;
+  const totalSuiteCount = question.total_test_cases_count;
 
   return (
     <article className="h-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 sm:p-6 space-y-6">
@@ -58,19 +71,27 @@ export function CodingQuestionPanel({
           {question.title}
         </h2>
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 font-medium">
             <Timer className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
             <span>Time Limit: {constraints.time_limit_ms} ms</span>
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 font-medium">
-            <HardDrive className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+            <HardDrive
+              className="h-3.5 w-3.5 text-slate-500"
+              aria-hidden="true"
+            />
             <span>Memory Limit: {constraints.memory_limit_mb} MB</span>
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 font-medium">
             <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
             <span>Isolated Sandbox</span>
           </span>
+          {question.target_skill && question.target_skill !== question.domain && (
+            <span className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-0.5 font-medium text-blue-800">
+              {question.target_skill}
+            </span>
+          )}
         </div>
       </div>
 
@@ -105,39 +126,11 @@ export function CodingQuestionPanel({
         </section>
       </div>
 
-      {/* Constraints */}
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Constraints
-        </h3>
-        <ul className="list-disc pl-5 space-y-1 text-xs font-mono text-slate-700">
-          {constraints.min_array_length !== undefined &&
-            constraints.max_array_length !== undefined && (
-              <li>
-                {constraints.min_array_length} &le; length &le;{' '}
-                {constraints.max_array_length.toLocaleString()}
-              </li>
-            )}
-          {constraints.min_value !== undefined &&
-            constraints.max_value !== undefined && (
-              <li>
-                {constraints.min_value.toLocaleString()} &le; element value &le;{' '}
-                {constraints.max_value.toLocaleString()}
-              </li>
-            )}
-          <li>Execution Timeout: {constraints.time_limit_ms} ms</li>
-          <li>Memory Ceiling: {constraints.memory_limit_mb} MB</li>
-          {constraints.additional_notes?.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Public Sample Test Cases */}
-      {question.public_test_cases.length > 0 && (
+      {/* Input / Output Examples */}
+      {publicCount > 0 && (
         <section className="space-y-3">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Public Sample Cases
+            Input / Output Examples
           </h3>
           <div className="space-y-3">
             {question.public_test_cases.map((tc, idx) => (
@@ -146,7 +139,7 @@ export function CodingQuestionPanel({
                 className="rounded-lg border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5"
               >
                 <p className="text-xs font-semibold text-slate-800">
-                  Sample Case {idx + 1}
+                  Example {idx + 1}
                 </p>
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   <div>
@@ -179,7 +172,76 @@ export function CodingQuestionPanel({
           </div>
         </section>
       )}
+
+      {/* Constraints */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Constraints
+        </h3>
+        <ul className="list-disc pl-5 space-y-1 text-xs font-mono text-slate-700">
+          {constraints.min_array_length !== undefined &&
+            constraints.max_array_length !== undefined && (
+              <li>
+                {constraints.min_array_length} &le; length &le;{' '}
+                {constraints.max_array_length.toLocaleString()}
+              </li>
+            )}
+          {constraints.min_value !== undefined &&
+            constraints.max_value !== undefined && (
+              <li>
+                {constraints.min_value.toLocaleString()} &le; element value &le;{' '}
+                {constraints.max_value.toLocaleString()}
+              </li>
+            )}
+          <li>Execution Timeout: {constraints.time_limit_ms} ms</li>
+          <li>Memory Ceiling: {constraints.memory_limit_mb} MB</li>
+          {constraints.additional_notes?.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Test Case Information */}
+      <section className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+          Test Case Information
+        </h3>
+        <div className="grid gap-2.5 sm:grid-cols-2 text-xs text-slate-700">
+          <div className="flex items-start gap-2 rounded-md border border-slate-200/80 bg-white p-2.5">
+            <CheckSquare
+              className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-semibold text-slate-900">
+                {publicCount} Public Sample {publicCount === 1 ? 'Case' : 'Cases'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Executed on Run Code with full stdout diff visibility.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-md border border-slate-200/80 bg-white p-2.5">
+            <Lock
+              className="h-4 w-4 shrink-0 text-slate-500 mt-0.5"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-semibold text-slate-900">
+                {hiddenCount !== undefined
+                  ? `${hiddenCount} Hidden Evaluation Cases`
+                  : totalSuiteCount !== undefined
+                  ? `${Math.max(0, totalSuiteCount - publicCount)} Hidden Evaluation Cases`
+                  : 'Hidden Grading Suite'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Weighted edge &amp; boundary tests evaluated on Submit Answer.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
     </article>
   );
 }
-

@@ -11,6 +11,7 @@ import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
 import { PortfolioPage } from './pages/student/PortfolioPage';
 import { AssessmentInstructionsPage } from './pages/student/AssessmentInstructionsPage';
 import { AssessmentWorkspacePage } from './pages/student/AssessmentWorkspacePage';
+import { AssessmentResultsPage } from './pages/student/AssessmentResultsPage';
 import { BrandLogo } from './components/ui/BrandLogo';
 
 function NotFoundPage() {
@@ -75,10 +76,42 @@ export function AppRoutes() {
         }
       />
       <Route
+        path="/student/assessment/:assessmentId/instructions"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentInstructionsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/student/assessment/workspace"
         element={
           <ProtectedRoute allowedRole="student">
             <AssessmentWorkspacePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/assessment/:assessmentId/workspace"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentWorkspacePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/assessment/results"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentResultsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/assessment/:assessmentId/results"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentResultsPage />
           </ProtectedRoute>
         }
       />

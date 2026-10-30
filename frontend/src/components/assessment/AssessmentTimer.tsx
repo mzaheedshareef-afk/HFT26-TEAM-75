@@ -33,6 +33,16 @@ export function AssessmentTimer({
     Math.max(0, Math.floor(initialSeconds))
   );
   const expiredFiredRef = useRef(false);
+  const onExpireRef = useRef(onExpire);
+  const onTickRef = useRef(onTick);
+
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  useEffect(() => {
+    onTickRef.current = onTick;
+  }, [onTick]);
 
   useEffect(() => {
     setRemaining(Math.max(0, Math.floor(initialSeconds)));
@@ -40,28 +50,24 @@ export function AssessmentTimer({
   }, [initialSeconds]);
 
   useEffect(() => {
+    onTickRef.current?.(remaining);
+    if (remaining <= 0 && !expiredFiredRef.current) {
+      expiredFiredRef.current = true;
+      onExpireRef.current?.();
+    }
+  }, [remaining]);
+
+  useEffect(() => {
     if (!isRunning || remaining <= 0) {
-      if (remaining <= 0 && !expiredFiredRef.current) {
-        expiredFiredRef.current = true;
-        onExpire?.();
-      }
       return;
     }
 
     const timerId = window.setInterval(() => {
-      setRemaining((prev) => {
-        const next = Math.max(0, prev - 1);
-        onTick?.(next);
-        if (next === 0 && !expiredFiredRef.current) {
-          expiredFiredRef.current = true;
-          onExpire?.();
-        }
-        return next;
-      });
+      setRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, [isRunning, remaining, onExpire, onTick]);
+  }, [isRunning, remaining]);
 
   const isExpired = remaining === 0;
   const isWarning = !isExpired && remaining <= warningThresholdSeconds;
@@ -88,4 +94,3 @@ export function AssessmentTimer({
     </div>
   );
 }
-

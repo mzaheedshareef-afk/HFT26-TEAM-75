@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   Code2,
   ExternalLink,
@@ -10,32 +11,44 @@ import {
   Terminal,
 } from 'lucide-react';
 import { DashboardShell } from '../../components/layout/DashboardShell';
+import { AssessmentListSection } from '../../components/assessment/AssessmentListSection';
 import { ScoreSummaryCard } from '../../components/assessment/ScoreSummaryCard';
 import { Button } from '../../components/ui/Button';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { useAuth } from '../../context/AuthContext';
 import { portfolioService } from '../../services/portfolioService';
 import { assessmentService } from '../../services/assessmentService';
+import { extractApiErrorMessage } from '../../services/api';
 import type { PortfolioProfile } from '../../types/portfolio';
-import type { ScoreSummary } from '../../types/assessment';
+import type {
+  AssessmentSummaryItem,
+  ScoreSummary,
+} from '../../types/assessment';
 
 export function StudentDashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [portfolio, setPortfolio] = useState<PortfolioProfile | null>(null);
+  const [assessments, setAssessments] = useState<AssessmentSummaryItem[]>([]);
   const [latestScore, setLatestScore] = useState<ScoreSummary | null>(null);
   const [isSyncing, setIsSyncing] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   const loadWorkspaceData = useCallback(
     async (isCancelled?: () => boolean) => {
       setIsSyncing(true);
       setSyncNotice(null);
 
-      const [portfolioResult, scoreResult] = await Promise.allSettled([
-        portfolioService.getMyPortfolio(),
-        assessmentService.getLatestScoreSummary(),
-      ]);
+      const [portfolioResult, scoreResult, assessmentsResult] =
+        await Promise.allSettled([
+          portfolioService.getMyPortfolio(),
+          assessmentService.getLatestScoreSummary(),
+          assessmentService.listAvailableAssessments(),
+        ]);
 
       if (isCancelled?.()) return;
 
@@ -45,10 +58,14 @@ export function StudentDashboardPage() {
       if (scoreResult.status === 'fulfilled') {
         setLatestScore(scoreResult.value);
       }
+      if (assessmentsResult.status === 'fulfilled') {
+        setAssessments(assessmentsResult.value);
+      }
 
       if (
         portfolioResult.status === 'rejected' &&
-        scoreResult.status === 'rejected'
+        scoreResult.status === 'rejected' &&
+        assessmentsResult.status === 'rejected'
       ) {
         setSyncNotice(
           'Portfolio and assessment endpoints are not currently reachable. You can still configure your portfolio upload and explore the assessment workspace.'
@@ -67,6 +84,37 @@ export function StudentDashboardPage() {
       cancelled = true;
     };
   }, [loadWorkspaceData]);
+
+  const handleGeneratePersonalizedAssessment = async () => {
+    setIsGenerating(true);
+    setGenerationError(null);
+
+    try {
+      const generatedSession =
+        await assessmentService.generatePersonalizedAssessment({
+          portfolio_id: portfolio?.id,
+          difficulty_preference: 'adaptive',
+          question_count: 3,
+        });
+      navigate(
+        `/student/assessment/${encodeURIComponent(
+          generatedSession.assessment_id
+        )}/instructions`,
+        {
+          state: { session: generatedSession },
+        }
+      );
+    } catch (error) {
+      setGenerationError(
+        extractApiErrorMessage(
+          error,
+          'Unable to generate a personalized assessment right now. Ensure your portfolio is uploaded and the assessment generator service is active.'
+        )
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <DashboardShell role="student">
@@ -119,7 +167,7 @@ export function StudentDashboardPage() {
           </div>
 
           {/* Primary Candidate Action Bar */}
-          <div className="grid gap-3 sm:grid-cols-3 border-t border-slate-100 pt-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 border-t border-slate-100 pt-5">
             <Link
               to="/student/portfolio"
               className="group flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-4 hover:border-blue-600 hover:bg-blue-50/30 transition-colors"
@@ -179,6 +227,26 @@ export function StudentDashboardPage() {
               </div>
               <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600" />
             </Link>
+
+            <Link
+              to="/student/assessment/results"
+              className="group flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 p-4 hover:border-blue-600 hover:bg-blue-50/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white border border-slate-200 text-slate-800 group-hover:text-blue-600">
+                  <BarChart3 className="h-4.5 w-4.5" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    Assessment Results
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Scores &amp; question analytics
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-slate-400 group-hover:text-blue-600" />
+            </Link>
           </div>
         </section>
 
@@ -190,6 +258,16 @@ export function StudentDashboardPage() {
             onDismiss={() => setSyncNotice(null)}
           />
         )}
+
+        {/* Personalized Assessment Dashboard Section */}
+        <AssessmentListSection
+          assessments={assessments}
+          isLoading={isSyncing}
+          isGenerating={isGenerating}
+          generationError={generationError}
+          onDismissError={() => setGenerationError(null)}
+          onGenerateAssessment={() => void handleGeneratePersonalizedAssessment()}
+        />
 
         {/* Two-Column Status & Evaluation Grid */}
         <div className="grid gap-6 lg:grid-cols-12">
