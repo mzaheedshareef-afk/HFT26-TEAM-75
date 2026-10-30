@@ -25,16 +25,16 @@ def _extract_json_from_text(raw_text: str) -> Dict[str, Any]:
     Strips markdown code blocks, backticks, and extraneous preamble to extract pure JSON.
     """
     clean = raw_text.strip()
-    # Match ```json ... ``` or ``` ... ```
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean)
-    if match:
-        clean = match.group(1).strip()
-    
-    # In case there is text before the first '{'
+    # Find outer curly braces
     start_idx = clean.find("{")
     end_idx = clean.rfind("}")
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         clean = clean[start_idx : end_idx + 1]
+    else:
+        # Try matching markdown code block
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean)
+        if match:
+            clean = match.group(1).strip()
 
     return json.loads(clean)
 
@@ -369,7 +369,6 @@ class QuestionGenerator:
                 messages=prompts,
                 temperature=0.2,
                 max_tokens=3500,
-                response_format={"type": "json_object"},
             )
 
             # Extract content from response
