@@ -6,6 +6,7 @@ from supabase import Client
 
 from backend.app.core.security import AuthException
 from backend.app.database.supabase import get_supabase_client
+from backend.app.grading.grading_engine import GradingEngine
 from backend.app.schemas.assessment import (
     AssessmentApiResponse,
     AssessmentGenerateRequest,
@@ -241,5 +242,39 @@ def start_specific_assessment(
         content={
             "success": True,
             "session": session,
+        },
+    )
+
+
+@router.get(
+    "/{assessment_id}/results",
+    summary="Get assessment grading results",
+)
+def get_assessment_results(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_authenticated_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """
+    Retrieves rolled-up assessment results and per-question score breakdown.
+    Enforces student ownership isolation.
+    """
+    AssessmentService.get_assessment_by_id(
+        client=client,
+        assessment_id=assessment_id,
+        requesting_user=current_user,
+    )
+
+    results = GradingEngine.get_assessment_results(
+        client=client,
+        assessment_id=assessment_id,
+        requesting_user=current_user,
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "results": results,
         },
     )

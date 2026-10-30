@@ -9,8 +9,13 @@ from fastapi.responses import JSONResponse
 from backend.app.api.routes.auth import router as auth_router
 from backend.app.api.routes.portfolio import router as portfolio_router
 from backend.app.api.routes.assessment import router as assessment_router
+from backend.app.api.routes.submissions import (
+    code_router,
+    submissions_router,
+)
 from backend.app.core.config import settings
 from backend.app.core.security import AuthException
+from backend.app.execution.security import ExecutionSecurityException
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,15 +27,15 @@ logger = logging.getLogger("auth_app")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup check
-    logger.info("Initializing Supabase Auth Backend Application...")
+    logger.info("Initializing Backend Application with Secure Sandbox Execution...")
     yield
     # Shutdown
-    logger.info("Supabase Auth Backend Application shutting down.")
+    logger.info("Backend Application shutting down.")
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Supabase-Powered Authentication Backend for Portfolio-Driven Adaptive Coding & Technical Assessment Platform",
+    description="Secure Code Execution & Automated Grading Backend for Portfolio-Driven Technical Assessment Platform",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -51,6 +56,21 @@ app.add_middleware(
 # -------------------------------------------------------------
 # Global Exception Handlers
 # -------------------------------------------------------------
+
+@app.exception_handler(ExecutionSecurityException)
+async def execution_security_exception_handler(request: Request, exc: ExecutionSecurityException) -> JSONResponse:
+    """Handles execution security errors (unsupported language, empty code, docker unavailable)."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": {
+                "code": exc.code,
+                "message": exc.message,
+            },
+        },
+    )
+
 
 @app.exception_handler(AuthException)
 async def auth_exception_handler(request: Request, exc: AuthException) -> JSONResponse:
@@ -175,3 +195,14 @@ app.include_router(
     tags=["Assessment"],
 )
 
+app.include_router(
+    code_router,
+    prefix="/api/code",
+    tags=["Code Execution"],
+)
+
+app.include_router(
+    submissions_router,
+    prefix="/api/submissions",
+    tags=["Submissions"],
+)

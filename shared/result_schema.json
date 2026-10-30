@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CodeSubmissionResultSchema",
+  "type": "object",
+  "required": ["success", "submission_id", "status", "score", "total_tests", "passed_tests"],
+  "properties": {
+    "success": { "type": "boolean" },
+    "submission_id": { "type": "string" },
+    "assessment_id": { "type": "string" },
+    "question_id": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "wrong_answer",
+        "time_limit_exceeded",
+        "memory_limit_exceeded",
+        "compilation_error",
+        "runtime_error",
+        "security_violation"
+      ]
+    },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "is_accepted": { "type": "boolean" },
+    "passed_tests": { "type": "integer" },
+    "failed_tests": { "type": "integer" },
+    "total_tests": { "type": "integer" },
+    "public_test_cases": { "type": "array" },
+    "hidden_test_cases": { "type": "array" },
+    "efficiency": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}
