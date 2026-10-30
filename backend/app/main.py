@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from backend.app.api.routes.auth import router as auth_router
 from backend.app.api.routes.portfolio import router as portfolio_router
 from backend.app.api.routes.assessment import router as assessment_router
+from backend.app.api.routes.assistant import router as assistant_router
+from backend.app.api.routes.submissions import router as submissions_router
 from backend.app.core.config import settings
 from backend.app.core.security import AuthException
 
@@ -173,5 +175,17 @@ app.include_router(
     assessment_router,
     prefix="/api/assessment",
     tags=["Assessment"],
+)
+
+app.include_router(
+    assistant_router,
+    prefix="/api/assistant",
+    tags=["Assistant"],
+)
+
+app.include_router(
+    submissions_router,
+    prefix="/api/submissions",
+    tags=["Submissions"],
 )
 

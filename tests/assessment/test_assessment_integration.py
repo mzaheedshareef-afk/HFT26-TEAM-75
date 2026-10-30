@@ -392,3 +392,173 @@ class TestFeatherlessClientAndErrorResilience:
         masked = _mask_secret("featherless_secret_key_123456789")
         assert masked == "feat...6789"
         assert "secret_key" not in masked
+
+
+class TestFullAssessmentWorkflowAndHints:
+    """Verifies end-to-end integration for hints, code execution, scoring, completion, and timer."""
+
+    def test_guarded_assistant_hint_request(self, client):
+        """Student requests progressive hint without solution leakage."""
+        token, _ = create_student(client, email="hint_student@test.com")
+        res = client.post(
+            "/api/assistant/hint",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "question_id": "q1",
+                "question_title": "Sliding Window Maximum Throughput",
+                "hint_level": 1,
+                "language": "python",
+                "current_code": "def max_throughput(timestamps, k):\n    pass\n",
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert "hint" in data
+        assert data["hint"]["level"] == 1
+        assert len(data["hint"]["content"]) > 10
+        # Leak check
+        assert "def max_throughput" not in data["hint"]["content"]
+
+    def test_guarded_assistant_role_guard(self, client):
+        """Company recruiter is forbidden from requesting student hints."""
+        token, _ = create_company(client, email="recruiter_hint@test.com")
+        res = client.post(
+            "/api/assistant/hint",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"question_id": "q1", "hint_level": 1},
+        )
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "ROLE_MISMATCH"
+
+    def test_run_public_tests_endpoint(self, client):
+        """Student executes code against public test cases."""
+        token, _ = create_student(client, email="runner_student@test.com")
+        upload_portfolio_for_student(client, token)
+
+        # Generate assessment
+        gen_res = client.post(
+            "/api/assessment/generate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"target_role": "Software Engineer"},
+        )
+        assessment = gen_res.json()["assessment"]
+        q = assessment["questions"][0]
+
+        run_res = client.post(
+            "/api/assessment/run",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "assessment_id": assessment["id"],
+                "question_id": q["question_id"],
+                "language": "python",
+                "code": "print(3)",  # Matches expected_output '3' for sample test case
+            },
+        )
+        assert run_res.status_code == 200
+        run_data = run_res.json()
+        assert run_data["success"] is True
+        assert "overall_verdict" in run_data
+        assert "results" in run_data
+
+    def test_submit_solution_endpoint(self, client):
+        """Student submits solution and receives graded summary."""
+        token, _ = create_student(client, email="submit_student@test.com")
+        upload_portfolio_for_student(client, token)
+
+        gen_res = client.post(
+            "/api/assessment/generate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"target_role": "Backend Engineer"},
+        )
+        assessment = gen_res.json()["assessment"]
+        q = assessment["questions"][0]
+
+        sub_res = client.post(
+            "/api/submissions",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "assessment_id": assessment["id"],
+                "question_id": q["question_id"],
+                "language": "python",
+                "code": "print(3)",
+                "elapsed_seconds": 150,
+                "hints_used": 1,
+            },
+        )
+        assert sub_res.status_code == 200
+        sub_data = sub_res.json()
+        assert sub_data["success"] is True
+        assert "summary" in sub_data
+        assert "deterministic_score" in sub_data["summary"]
+
+        # Check latest submission endpoint
+        latest_res = client.get("/api/submissions/latest", headers={"Authorization": f"Bearer {token}"})
+        assert latest_res.status_code == 200
+        assert latest_res.json()["success"] is True
+
+    def test_complete_assessment_and_results(self, client):
+        """Student completes assessment and retrieves comprehensive results report."""
+        token, _ = create_student(client, email="complete_student@test.com")
+        upload_portfolio_for_student(client, token)
+
+        gen_res = client.post(
+            "/api/assessment/generate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"target_role": "Backend Engineer"},
+        )
+        assessment_id = gen_res.json()["assessment"]["id"]
+
+        comp_res = client.post(
+            f"/api/assessment/{assessment_id}/complete",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"elapsed_seconds": 1800, "total_hints_used": 2},
+        )
+        assert comp_res.status_code == 200
+        comp_data = comp_res.json()
+        assert comp_data["success"] is True
+        assert comp_data["result"]["completion_status"] == "completed"
+
+        # Check get results
+        get_res = client.get(f"/api/assessment/{assessment_id}/results", headers={"Authorization": f"Bearer {token}"})
+        assert get_res.status_code == 200
+        assert get_res.json()["result"]["assessment_id"] == assessment_id
+
+        # Check latest results
+        latest_res = client.get("/api/assessment/results/latest", headers={"Authorization": f"Bearer {token}"})
+        assert latest_res.status_code == 200
+
+    def test_backend_authoritative_timer_and_refresh_survival(self, client):
+        """Backend establishes authoritative start timestamp and computes remaining seconds across refreshes."""
+        token, _ = create_student(client, email="timer_student@test.com")
+        upload_portfolio_for_student(client, token)
+
+        gen_res = client.post(
+            "/api/assessment/generate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"target_role": "Backend Engineer"},
+        )
+        assessment_id = gen_res.json()["assessment"]["id"]
+
+        # Start session
+        start_res = client.post(
+            f"/api/assessment/{assessment_id}/start",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert start_res.status_code == 200
+        start_session = start_res.json()["session"]
+        assert "started_at" in start_session
+        assert start_session["started_at"] is not None
+        initial_remaining = start_session["remaining_seconds"]
+        assert initial_remaining <= 3600
+
+        # Simulate page refresh by fetching session directly
+        refresh_res = client.get(
+            f"/api/assessment/{assessment_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert refresh_res.status_code == 200
+        refreshed_assessment = refresh_res.json()["assessment"]
+        assert "remaining_seconds" in refreshed_assessment
+        assert refreshed_assessment["started_at"] == start_session["started_at"]
+

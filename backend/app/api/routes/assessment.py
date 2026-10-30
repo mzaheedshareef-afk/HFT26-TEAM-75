@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from supabase import Client
 
 from backend.app.core.security import AuthException
@@ -243,3 +244,142 @@ def start_specific_assessment(
             "session": session,
         },
     )
+
+
+class RunCodeRequest(BaseModel):
+    assessment_id: Optional[str] = None
+    question_id: str
+    language: str = "python"
+    code: str
+
+
+@router.post(
+    "/run",
+    status_code=status.HTTP_200_OK,
+    summary="Execute candidate code against public test cases",
+)
+def run_public_tests(
+    payload: RunCodeRequest,
+    current_user: Dict[str, Any] = Depends(require_student_user),
+) -> JSONResponse:
+    """Executes candidate code against question's public sample test cases."""
+    run_results = AssessmentService.execute_public_tests(
+        assessment_id=payload.assessment_id,
+        question_id=payload.question_id,
+        language=payload.language,
+        code=payload.code,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=run_results,
+    )
+
+
+class CompleteAssessmentRequest(BaseModel):
+    elapsed_seconds: Optional[int] = None
+    total_hints_used: Optional[int] = 0
+
+
+@router.post(
+    "/{assessment_id}/complete",
+    status_code=status.HTTP_200_OK,
+    summary="Finalize assessment and generate comprehensive results report",
+)
+def complete_assessment(
+    assessment_id: str,
+    payload: Optional[CompleteAssessmentRequest] = None,
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Marks assessment session as completed and compiles results report."""
+    elapsed = payload.elapsed_seconds if payload else None
+    hints = payload.total_hints_used if payload else 0
+    results = AssessmentService.complete_assessment(
+        client=client,
+        assessment_id=assessment_id,
+        requesting_user=current_user,
+        elapsed_seconds=elapsed,
+        total_hints_used=hints,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "result": results,
+            "results": results,
+        },
+    )
+
+
+@router.get(
+    "/results/latest",
+    status_code=status.HTTP_200_OK,
+    summary="Get candidate's latest assessment completion report",
+)
+def get_latest_results(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Retrieves results report for candidate's latest completed assessment."""
+    results = AssessmentService.get_assessment_results(
+        client=client,
+        assessment_id=None,
+        requesting_user=current_user,
+    )
+    if not results:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {
+                    "code": "NO_COMPLETED_ASSESSMENT",
+                    "message": "No completed assessment results found.",
+                },
+            },
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "result": results,
+            "results": results,
+        },
+    )
+
+
+@router.get(
+    "/{assessment_id}/results",
+    status_code=status.HTTP_200_OK,
+    summary="Get results report for specific assessment",
+)
+def get_assessment_results(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Retrieves results report for specific completed assessment."""
+    results = AssessmentService.get_assessment_results(
+        client=client,
+        assessment_id=assessment_id,
+        requesting_user=current_user,
+    )
+    if not results:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "success": False,
+                "error": {
+                    "code": "RESULTS_NOT_FOUND",
+                    "message": "Results report not found for this assessment.",
+                },
+            },
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "result": results,
+            "results": results,
+        },
+    )
+

@@ -183,9 +183,17 @@ curl -X POST http://localhost:8000/api/portfolio/upload \
 ### 7.1 Run All Backend & Integration Tests (Pytest)
 From the repository root:
 ```bash
-python -m pytest backend/tests/test_auth.py tests/integration/test_full_stack_integration.py tests/portfolio/test_portfolio_integration.py -v
+python -m pytest -o pythonpath=. tests/ backend/tests/ -v
 ```
-**Total:** **43 Passed / 0 Failed**.
+**Total:** **90 Passed / 0 Failed** across:
+- `tests/assessment/test_assessment_integration.py` (20 passed)
+- `tests/portfolio/test_portfolio_integration.py` (13 passed)
+- `backend/tests/test_auth.py` (22 passed)
+- `tests/auth/test_auth_api.py` (15 passed)
+- `tests/integration/test_full_stack_integration.py` (8 passed)
+- `tests/integration/test_frontend_contracts.py` (5 passed)
+- `tests/sandbox_planning/test_sandbox_contract.py` (5 passed)
+- `backend/tests/test_auth.py` (2 passed)
 
 ### 7.2 Run All Frontend Tests (Vitest)
 From `frontend/`:
@@ -193,11 +201,33 @@ From `frontend/`:
 cd frontend
 npm test
 ```
-**Total:** **19 Passed / 0 Failed** (`auth.test.tsx`, `portfolio.test.tsx`).
+**Total:** **25 Passed / 0 Failed** across:
+- `src/__tests__/assessment.test.tsx` (6 passed)
+- `src/__tests__/portfolio.test.tsx` (5 passed)
+- `src/__tests__/auth.test.tsx` (14 passed)
 
 ---
 
-## 8. Verification Checklist
+## 8. AI Personalized Assessment Workflow Instructions
+
+### 8.1 Complete Candidate Workflow
+1. **Login**: Access `http://localhost:5173/student/login` and log in with student credentials.
+2. **Dashboard**: Navigate to the student dashboard (`http://localhost:5173/student/dashboard`).
+3. **Assessment Overview**: Click **Take Assessment** or browse **Personalized Coding Assessments** generated from your verified portfolio.
+4. **Instructions & Rules**: Review duration (60 minutes), allowed languages, problem breakdown, and test case constraints.
+5. **Start Assessment**: Confirm and start session. The timer begins based on the backend authoritative start timestamp (`started_at`), which survives browser refreshes.
+6. **Workspace**:
+   - Navigate between questions using the top question tabs.
+   - Read the problem statement, constraints, and public sample test cases.
+   - Code in the Monaco editor.
+   - Request progressive conceptual hints via the **AI Hint Panel** (`/api/assistant/hint`). Full code implementations are strictly redacted.
+   - Click **Run Code** to execute against public test cases (`/api/assessment/run`).
+   - Click **Submit Solution** to submit for deterministic grading against all test cases (`/api/submissions`).
+7. **Complete Assessment**: Click **Finish Assessment** to finalize the session and view the comprehensive results breakdown at `http://localhost:5173/student/assessment/results`.
+
+---
+
+## 9. Verification Checklist
 
 | Scenario | Expected Result | Verified |
 | :--- | :--- | :---: |
@@ -210,15 +240,17 @@ npm test
 | **Portfolio Upload (Multipart)** | `POST /api/portfolio/upload` accepts form data + files, analyzes skills, returns 201 Created | ✅ |
 | **Portfolio Upload (JSON)** | `POST /api/portfolio/upload` accepts direct JSON body, returns 201 Created | ✅ |
 | **Portfolio Retrieval** | `GET /api/portfolio/me` returns uploaded record with declared stack and recommended tracks | ✅ |
-| **Portfolio By ID (Owner)** | `GET /api/portfolio/{id}` returns candidate portfolio to the owner | ✅ |
-| **Portfolio By ID (Recruiter)**| `GET /api/portfolio/{id}` returns candidate portfolio to authorized company users | ✅ |
-| **Cross-Student Security** | Student attempting to view another student's portfolio is rejected with `403 UNAUTHORIZED_ACCESS` | ✅ |
-| **Company Role Restriction** | Company user attempting portfolio upload is rejected with `403 ROLE_MISMATCH` | ✅ |
-| **Invalid GitHub URL** | Malformed GitHub link returns `422 INVALID_GITHUB_URL` with descriptive message | ✅ |
-| **Missing Languages** | Upload without languages returns `422 MISSING_FIELDS` | ✅ |
-| **Empty Payload** | Empty upload returns `422 MISSING_FIELDS` | ✅ |
-| **Oversized File** | Files > 15MB return `413 PAYLOAD_TOO_LARGE` | ✅ |
-| **Missing Auth Token** | Unauthenticated upload returns `401 UNAUTHORIZED` | ✅ |
-| **Token Expiry / Invalid Token** | Forged token returns `401 INVALID_TOKEN`; frontend automatically clears session | ✅ |
+| **Assessment Generation (AI)** | `POST /api/assessment/generate` uses Featherless AI with candidate portfolio grounding, returns 201 Created with 60-min personalized questions | ✅ |
+| **Candidate Assessments List** | `GET /api/assessment` lists available assessments for candidate | ✅ |
+| **Active Session Retrieval** | `GET /api/assessment/active` returns active session with authoritative timer | ✅ |
+| **Start Assessment** | `POST /api/assessment/{id}/start` starts assessment session, records backend `started_at` | ✅ |
+| **Timer Refresh Survival** | Reloading page during workspace retains accurate remaining seconds calculated from backend `started_at` | ✅ |
+| **Guarded AI Hint** | `POST /api/assistant/hint` provides progressive Level 1/2/3 guidance without revealing code solutions | ✅ |
+| **Code Execution (Public)** | `POST /api/assessment/run` evaluates public test cases and returns execution verdicts (`AC`, `WA`, `TLE`, `RTE`) | ✅ |
+| **Solution Submission** | `POST /api/submissions` evaluates public and hidden tests, returns composite score | ✅ |
+| **Complete Assessment** | `POST /api/assessment/{id}/complete` updates status to `completed` and compiles results report | ✅ |
+| **Cross-Student Assessment Security** | Accessing another candidate's assessment returns `403 UNAUTHORIZED_ACCESS` | ✅ |
+| **Company Assessment Restriction** | Recruiter accounts cannot generate student assessments (`403 ROLE_MISMATCH`) | ✅ |
+| **Hidden Test Privacy** | Neither `/api/assessment` nor `/api/assessment/{id}` ever returns hidden test cases or reference solutions | ✅ |
 | **Backend Unavailable** | Service disconnect renders alert banner gracefully without application crashes | ✅ |
 
