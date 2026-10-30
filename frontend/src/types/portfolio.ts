@@ -38,3 +38,4 @@ export interface PortfolioUploadResponse {
   portfolio?: PortfolioProfile;
   message?: string;
 }
+

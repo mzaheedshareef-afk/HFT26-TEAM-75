@@ -194,3 +194,4 @@ export function TestResultsPanel({
     </section>
   );
 }
+

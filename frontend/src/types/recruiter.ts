@@ -30,3 +30,4 @@ export interface CompanyDashboardData {
   metrics: CompanyOverviewMetrics;
   candidates: CandidateEvaluationRecord[];
 }
+

@@ -8,6 +8,9 @@ import { CompanySignupPage } from './pages/auth/CompanySignupPage';
 import { CompanyLoginPage } from './pages/auth/CompanyLoginPage';
 import { StudentDashboardPage } from './pages/dashboard/StudentDashboardPage';
 import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
+import { PortfolioPage } from './pages/student/PortfolioPage';
+import { AssessmentInstructionsPage } from './pages/student/AssessmentInstructionsPage';
+import { AssessmentWorkspacePage } from './pages/student/AssessmentWorkspacePage';
 import { BrandLogo } from './components/ui/BrandLogo';
 
 function NotFoundPage() {
@@ -56,6 +59,30 @@ export function AppRoutes() {
         }
       />
       <Route
+        path="/student/portfolio"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <PortfolioPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/assessment/instructions"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentInstructionsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/assessment/workspace"
+        element={
+          <ProtectedRoute allowedRole="student">
+            <AssessmentWorkspacePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/company/dashboard"
         element={
           <ProtectedRoute allowedRole="company">
@@ -77,4 +104,3 @@ export default function App() {
     </AuthProvider>
   );
 }
-
