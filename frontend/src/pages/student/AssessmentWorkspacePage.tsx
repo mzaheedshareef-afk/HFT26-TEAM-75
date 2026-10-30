@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Code2,
+  Loader2,
   Play,
   RefreshCw,
   Send,
@@ -17,9 +19,13 @@ import { CodingQuestionPanel } from '../../components/assessment/CodingQuestionP
 import {
   CodeEditorPanel,
   DEFAULT_STARTER_CODE,
+  LANGUAGE_LABELS,
 } from '../../components/assessment/CodeEditorPanel';
 import { AiHintPanel } from '../../components/assessment/AiHintPanel';
-import { TestResultsPanel } from '../../components/assessment/TestResultsPanel';
+import {
+  TestResultsPanel,
+  VerdictBadge,
+} from '../../components/assessment/TestResultsPanel';
 import { ScoreSummaryCard } from '../../components/assessment/ScoreSummaryCard';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
@@ -42,6 +48,53 @@ interface WorkspaceLocationState {
 
 function makeDraftKey(questionId: string, language: SupportedLanguage): string {
   return `${questionId}::${language}`;
+}
+
+function makeSubmissionSnapshot(
+  language: SupportedLanguage,
+  code: string
+): string {
+  return `${language}::${code}`;
+}
+
+function getDraftStorageKey(assessmentId: string): string {
+  return `gatecode_coding_drafts_${assessmentId}`;
+}
+
+function readPersistedDrafts(assessmentId?: string): Record<string, string> {
+  if (!assessmentId) return {};
+  try {
+    const raw = sessionStorage.getItem(getDraftStorageKey(assessmentId));
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const clean: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === 'string') {
+          clean[key] = value;
+        }
+      }
+      return clean;
+    }
+  } catch {
+    // Ignore storage read errors in restricted browser contexts
+  }
+  return {};
+}
+
+function writePersistedDrafts(
+  assessmentId: string | undefined,
+  drafts: Record<string, string>
+): void {
+  if (!assessmentId) return;
+  try {
+    sessionStorage.setItem(
+      getDraftStorageKey(assessmentId),
+      JSON.stringify(drafts)
+    );
+  } catch {
+    // Ignore storage quota errors
+  }
 }
 
 function resolveStarterCode(
@@ -69,7 +122,9 @@ export function AssessmentWorkspacePage() {
   const [language, setLanguage] = useState<SupportedLanguage>(
     initialSession?.allowed_languages?.[0] ?? 'python'
   );
-  const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>({});
+  const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>(() =>
+    readPersistedDrafts(initialSession?.assessment_id ?? assessmentId)
+  );
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
     initialSession?.remaining_seconds ??
       initialSession?.duration_seconds ??
@@ -81,6 +136,10 @@ export function AssessmentWorkspacePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+
+  // Synchronous mutex preventing rapid double-click duplicate POSTs before React re-renders
+  const submittingLockRef = useRef(false);
 
   const [runsByQuestion, setRunsByQuestion] = useState<
     Record<string, CodeRunResponse>
@@ -88,6 +147,8 @@ export function AssessmentWorkspacePage() {
   const [submissionsByQuestion, setSubmissionsByQuestion] = useState<
     Record<string, ScoreSummary>
   >({});
+  const [submittedSnapshotsByQuestion, setSubmittedSnapshotsByQuestion] =
+    useState<Record<string, string>>({});
   const [hintsByQuestion, setHintsByQuestion] = useState<
     Record<string, AiHintItem[]>
   >({});
@@ -95,13 +156,21 @@ export function AssessmentWorkspacePage() {
   const questions = session?.questions ?? [];
   const activeQuestion = questions[activeQuestionIdx] ?? null;
 
+  const activeStarterCode = useMemo(
+    () => resolveStarterCode(activeQuestion, language),
+    [activeQuestion, language]
+  );
+
   const activeCode = useMemo(() => {
     if (!activeQuestion) {
       return DEFAULT_STARTER_CODE[language];
     }
     const key = makeDraftKey(activeQuestion.question_id, language);
-    return codeDrafts[key] ?? resolveStarterCode(activeQuestion, language);
-  }, [activeQuestion, codeDrafts, language]);
+    return codeDrafts[key] ?? activeStarterCode;
+  }, [activeQuestion, activeStarterCode, codeDrafts, language]);
+
+  const hasBackendStarter = Boolean(activeQuestion?.starter_code?.[language]);
+  const isModifiedFromStarter = activeCode !== activeStarterCode;
 
   const activeRunResponse = activeQuestion
     ? runsByQuestion[activeQuestion.question_id] ?? null
@@ -112,6 +181,13 @@ export function AssessmentWorkspacePage() {
   const activeQuestionHints = activeQuestion
     ? hintsByQuestion[activeQuestion.question_id] ?? []
     : [];
+
+  const currentSnapshot = makeSubmissionSnapshot(language, activeCode);
+  const isDuplicateSubmission = Boolean(
+    activeQuestion &&
+      submittedSnapshotsByQuestion[activeQuestion.question_id] ===
+        currentSnapshot
+  );
 
   const totalSessionHintsUsed = useMemo(
     () =>
@@ -138,6 +214,10 @@ export function AssessmentWorkspacePage() {
         : await assessmentService.getActiveSession();
       setSession(fetched);
       if (fetched) {
+        const persisted = readPersistedDrafts(fetched.assessment_id);
+        if (Object.keys(persisted).length > 0) {
+          setCodeDrafts((prev) => ({ ...persisted, ...prev }));
+        }
         const defaultLang = fetched.allowed_languages?.[0] ?? 'python';
         setLanguage(defaultLang);
         setActiveQuestionIdx(0);
@@ -166,32 +246,46 @@ export function AssessmentWorkspacePage() {
     }
   }, [assessmentId, initialSession, fetchSession]);
 
+  const effectiveAssessmentId = session?.assessment_id ?? assessmentId;
+
   const handleCodeChange = (nextCode: string) => {
     if (!activeQuestion) return;
     const key = makeDraftKey(activeQuestion.question_id, language);
-    setCodeDrafts((prev) => ({
-      ...prev,
-      [key]: nextCode,
-    }));
+    setCodeDrafts((prev) => {
+      const updated = {
+        ...prev,
+        [key]: nextCode,
+      };
+      writePersistedDrafts(effectiveAssessmentId, updated);
+      return updated;
+    });
   };
 
   const handleLanguageChange = (nextLang: SupportedLanguage) => {
     setLanguage(nextLang);
+    setExecutionError(null);
+    setSubmissionError(null);
   };
 
   const handleQuestionSwitch = (index: number) => {
     if (index < 0 || index >= questions.length) return;
     setActiveQuestionIdx(index);
     setExecutionError(null);
+    setSubmissionError(null);
   };
 
   const handleResetStarter = () => {
     if (!activeQuestion) return;
     const key = makeDraftKey(activeQuestion.question_id, language);
-    setCodeDrafts((prev) => ({
-      ...prev,
-      [key]: resolveStarterCode(activeQuestion, language),
-    }));
+    const starter = resolveStarterCode(activeQuestion, language);
+    setCodeDrafts((prev) => {
+      const updated = {
+        ...prev,
+        [key]: starter,
+      };
+      writePersistedDrafts(effectiveAssessmentId, updated);
+      return updated;
+    });
   };
 
   const handleHintReceived = (hint: AiHintItem) => {
@@ -204,19 +298,30 @@ export function AssessmentWorkspacePage() {
   };
 
   const handleRunPublicTests = async () => {
-    if (!activeQuestion || !activeCode.trim()) return;
+    if (
+      !activeQuestion ||
+      !activeCode.trim() ||
+      isTimeExpired ||
+      isRunningTests ||
+      isSubmitting
+    ) {
+      return;
+    }
+
+    const targetQuestionId = activeQuestion.question_id;
     setIsRunningTests(true);
     setExecutionError(null);
+
     try {
       const result = await assessmentService.runPublicTests({
         assessmentId: session?.assessment_id,
-        questionId: activeQuestion.question_id,
+        questionId: targetQuestionId,
         language,
         code: activeCode,
       });
       setRunsByQuestion((prev) => ({
         ...prev,
-        [activeQuestion.question_id]: result,
+        [targetQuestionId]: result,
       }));
     } catch (error) {
       setExecutionError(
@@ -231,37 +336,62 @@ export function AssessmentWorkspacePage() {
   };
 
   const handleSubmitSolution = async () => {
-    if (!activeQuestion || !activeCode.trim()) return;
+    if (
+      submittingLockRef.current ||
+      !activeQuestion ||
+      !activeCode.trim() ||
+      isTimeExpired ||
+      isRunningTests ||
+      isSubmitting ||
+      isDuplicateSubmission
+    ) {
+      return;
+    }
+
+    const targetQuestionId = activeQuestion.question_id;
+    const snapshotBeingSubmitted = makeSubmissionSnapshot(language, activeCode);
+
+    submittingLockRef.current = true;
     setIsSubmitting(true);
+    setSubmissionError(null);
     setExecutionError(null);
+
     try {
       const response = await assessmentService.submitSolution({
         assessmentId: session?.assessment_id,
-        questionId: activeQuestion.question_id,
+        questionId: targetQuestionId,
         language,
         code: activeCode,
         elapsedSeconds,
         hintsUsed: activeQuestionHints.length,
       });
+
       if (response.run_results) {
         const runData = response.run_results;
         setRunsByQuestion((prev) => ({
           ...prev,
-          [activeQuestion.question_id]: runData,
+          [targetQuestionId]: runData,
         }));
       }
+
       setSubmissionsByQuestion((prev) => ({
         ...prev,
-        [activeQuestion.question_id]: response.summary,
+        [targetQuestionId]: response.summary,
+      }));
+
+      setSubmittedSnapshotsByQuestion((prev) => ({
+        ...prev,
+        [targetQuestionId]: snapshotBeingSubmitted,
       }));
     } catch (error) {
-      setExecutionError(
+      setSubmissionError(
         extractApiErrorMessage(
           error,
-          'Unable to submit solution for grading. Ensure the submissions service is active.'
+          'Unable to submit solution for grading. Check your network connection and verify the submissions service is active.'
         )
       );
     } finally {
+      submittingLockRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -269,6 +399,7 @@ export function AssessmentWorkspacePage() {
   /**
    * Builds a strictly real result summary from actual backend-graded submissions
    * when navigating to the results page if a separate /complete endpoint returns 404.
+   * Never fabricates execution times, memory metrics, or scores.
    */
   const buildVerifiedSessionResult = (): AssessmentResultDetail | null => {
     if (!session || submittedQuestionCount === 0) return null;
@@ -276,6 +407,7 @@ export function AssessmentWorkspacePage() {
     const questionPerformance: QuestionPerformanceItem[] =
       session.questions.map((q) => {
         const sub = submissionsByQuestion[q.question_id];
+        const run = runsByQuestion[q.question_id];
         const qHints = hintsByQuestion[q.question_id]?.length ?? 0;
 
         if (!sub) {
@@ -293,7 +425,9 @@ export function AssessmentWorkspacePage() {
           };
         }
 
-        const failed = Math.max(0, sub.total_tests - sub.passed_tests);
+        const failed =
+          sub.failed_tests ?? Math.max(0, sub.total_tests - sub.passed_tests);
+
         return {
           question_id: q.question_id,
           title: q.title,
@@ -303,6 +437,8 @@ export function AssessmentWorkspacePage() {
           passed_tests: sub.passed_tests,
           failed_tests: failed,
           total_tests: sub.total_tests,
+          execution_time_ms: sub.execution_time_ms ?? run?.total_time_ms,
+          memory_used_mb: sub.memory_used_mb ?? run?.memory_used_mb,
           hints_used: qHints,
           detected_time_complexity: sub.efficiency?.detected_time_complexity,
         };
@@ -329,6 +465,13 @@ export function AssessmentWorkspacePage() {
       submittedList.reduce((sum, item) => sum + item.deterministic_score, 0) /
       Math.max(1, session.questions.length);
 
+    const execTimes = questionPerformance
+      .map((item) => item.execution_time_ms)
+      .filter((ms): ms is number => typeof ms === 'number');
+    const memUsages = questionPerformance
+      .map((item) => item.memory_used_mb)
+      .filter((mb): mb is number => typeof mb === 'number');
+
     return {
       assessment_id: session.assessment_id,
       assessment_title: session.title,
@@ -344,6 +487,12 @@ export function AssessmentWorkspacePage() {
       total_test_cases: totalCases,
       time_taken_seconds: elapsedSeconds,
       time_limit_seconds: session.duration_seconds,
+      total_execution_time_ms:
+        execTimes.length > 0
+          ? execTimes.reduce((acc, ms) => acc + ms, 0)
+          : undefined,
+      peak_memory_mb:
+        memUsages.length > 0 ? Math.max(...memUsages) : undefined,
       total_hints_used: totalSessionHintsUsed,
       completed_at: new Date().toISOString(),
       question_performance: questionPerformance,
@@ -389,12 +538,14 @@ export function AssessmentWorkspacePage() {
     }
   };
 
-  const actionsDisabled =
+  const runDisabled =
     !activeQuestion ||
     isTimeExpired ||
     isRunningTests ||
     isSubmitting ||
     !activeCode.trim();
+
+  const submitDisabled = runDisabled || isDuplicateSubmission;
 
   const instructionsPath =
     session?.assessment_id || assessmentId
@@ -488,6 +639,11 @@ export function AssessmentWorkspacePage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-1.5 text-xs font-semibold text-blue-800">
+                <Code2 className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
+                <span>Selected: {LANGUAGE_LABELS[language]}</span>
+              </span>
+
               <AssessmentTimer
                 initialSeconds={
                   session?.remaining_seconds ??
@@ -522,7 +678,7 @@ export function AssessmentWorkspacePage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={actionsDisabled}
+                disabled={runDisabled}
                 isLoading={isRunningTests}
                 loadingText="Running..."
                 onClick={() => void handleRunPublicTests()}
@@ -535,13 +691,26 @@ export function AssessmentWorkspacePage() {
                 type="button"
                 variant="accent"
                 size="sm"
-                disabled={actionsDisabled}
+                disabled={submitDisabled}
                 isLoading={isSubmitting}
                 loadingText="Submitting..."
+                title={
+                  isDuplicateSubmission
+                    ? 'This exact solution has already been submitted. Modify code or switch language to resubmit.'
+                    : 'Submit final solution for deterministic grading'
+                }
                 onClick={() => void handleSubmitSolution()}
-                leftIcon={<Send className="h-3.5 w-3.5" aria-hidden="true" />}
+                leftIcon={
+                  isDuplicateSubmission ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                  )
+                }
               >
-                Submit Answer
+                {isDuplicateSubmission
+                  ? 'Solution Submitted'
+                  : 'Submit Solution'}
               </Button>
 
               {(submittedQuestionCount > 0 || isTimeExpired) && (
@@ -604,13 +773,15 @@ export function AssessmentWorkspacePage() {
               />
             </div>
 
-            {/* Right Column: Monaco Editor + Test Runner + Score Summary */}
+            {/* Right Column: Monaco Editor + Submission Status + Test Runner + Score Summary */}
             <div className="lg:col-span-7 space-y-5">
-              <div className="h-[440px]">
+              <div className="h-[450px]">
                 <CodeEditorPanel
                   language={language}
                   allowedLanguages={session?.allowed_languages}
                   code={activeCode}
+                  hasBackendStarter={hasBackendStarter}
+                  isModifiedFromStarter={isModifiedFromStarter}
                   readOnly={isTimeExpired}
                   onLanguageChange={handleLanguageChange}
                   onCodeChange={handleCodeChange}
@@ -618,9 +789,63 @@ export function AssessmentWorkspacePage() {
                 />
               </div>
 
+              {/* Submission Status & Network Error Feedback */}
+              {submissionError && (
+                <AlertBanner
+                  variant="error"
+                  title="Submission Failed"
+                  message={submissionError}
+                  onDismiss={() => setSubmissionError(null)}
+                />
+              )}
+
+              {isSubmitting && (
+                <div
+                  role="status"
+                  className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs font-medium text-blue-900"
+                >
+                  <Loader2
+                    className="h-4 w-4 animate-spin text-blue-600"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    Submission Status: Grading final solution against deterministic test suites...
+                  </span>
+                </div>
+              )}
+
+              {!isSubmitting && activeScoreSummary && (
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-emerald-950">
+                    <CheckCircle2
+                      className="h-4 w-4 shrink-0 text-emerald-600"
+                      aria-hidden="true"
+                    />
+                    <span className="font-semibold">
+                      Submission Status: Graded ({Math.round(activeScoreSummary.overall_score)} / 100)
+                    </span>
+                    <span className="text-emerald-800">
+                      &middot;{' '}
+                      {isDuplicateSubmission
+                        ? 'Current snapshot submitted (edit code to resubmit)'
+                        : 'Draft modified since last submission'}
+                    </span>
+                  </div>
+                  <VerdictBadge verdict={activeScoreSummary.overall_verdict} />
+                </div>
+              )}
+
               <TestResultsPanel
                 runResponse={activeRunResponse}
                 isRunning={isRunningTests || isSubmitting}
+                runningLabel={
+                  isSubmitting
+                    ? 'Submitting and grading final solution against test suites...'
+                    : 'Executing code against public test cases in isolated sandbox...'
+                }
                 errorMessage={executionError}
               />
 

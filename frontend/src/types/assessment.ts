@@ -1,4 +1,4 @@
-// TypeScript API Contracts for Assessment Module
+// TypeScript API Contracts for Assessment & Coding Workspace Module
 // Unified between Zaheed's Frontend and Vasil's FastAPI Backend & Execution Engine
 
 export type QuestionDifficulty = 'Easy' | 'Medium' | 'Hard';
@@ -14,21 +14,29 @@ export type AssessmentLifecycleStatus =
 
 export type SupportedLanguage =
   | 'python'
-  | 'javascript'
-  | 'typescript'
   | 'java'
-  | 'cpp';
+  | 'cpp'
+  | 'javascript'
+  | 'typescript';
 
 /**
- * Execution status verdicts aligned with docs/execution_module_plan.md (Section 4.2):
+ * Execution status verdicts aligned with docs/execution_module_plan.md:
  * - AC: Accepted
  * - WA: Wrong Answer
  * - TLE: Time Limit Exceeded
  * - MLE: Memory Limit Exceeded
+ * - CE: Compilation / Syntax Error
  * - RTE: Runtime Error
  * - SEC: Security Violation
  */
-export type ExecutionVerdict = 'AC' | 'WA' | 'TLE' | 'MLE' | 'RTE' | 'SEC';
+export type ExecutionVerdict =
+  | 'AC'
+  | 'WA'
+  | 'TLE'
+  | 'MLE'
+  | 'CE'
+  | 'RTE'
+  | 'SEC';
 
 export interface QuestionConstraints {
   min_array_length?: number;
@@ -73,7 +81,10 @@ export interface TestCaseRunResult {
   input?: string;
   expected_output?: string;
   actual_output?: string;
+  stdout?: string;
+  stderr?: string;
   error_message?: string;
+  timed_out?: boolean;
   weight?: number;
 }
 
@@ -84,6 +95,11 @@ export interface CodeRunResponse {
   passed_count: number;
   total_count: number;
   total_time_ms?: number;
+  memory_used_mb?: number;
+  stdout?: string;
+  stderr?: string;
+  compile_error?: string;
+  timed_out?: boolean;
   results: TestCaseRunResult[];
 }
 
@@ -100,10 +116,14 @@ export interface ScoreSummary {
   assessment_id?: string;
   question_id?: string;
   question_title?: string;
+  language?: SupportedLanguage;
   deterministic_score: number; // 0 - 100 weighted hidden/public test score
   overall_score: number; // 0 - 100 composite score
   passed_tests: number;
+  failed_tests?: number;
   total_tests: number;
+  execution_time_ms?: number;
+  memory_used_mb?: number;
   overall_verdict: ExecutionVerdict;
   submitted_at?: string;
   efficiency?: EfficiencyAnalysis | null;
@@ -114,6 +134,7 @@ export interface ActiveAssessmentSession {
   title: string;
   duration_seconds: number;
   remaining_seconds?: number;
+  started_at?: string;
   allowed_languages: SupportedLanguage[];
   questions: CodingQuestion[];
   calibrated_stack?: string[];
@@ -183,6 +204,8 @@ export interface QuestionPerformanceItem {
   failed_tests: number;
   total_tests: number;
   time_taken_seconds?: number;
+  execution_time_ms?: number;
+  memory_used_mb?: number;
   hints_used: number;
   detected_time_complexity?: string;
 }
@@ -198,6 +221,8 @@ export interface AssessmentResultDetail {
   total_test_cases: number;
   time_taken_seconds: number;
   time_limit_seconds?: number;
+  total_execution_time_ms?: number;
+  peak_memory_mb?: number;
   total_hints_used: number;
   completed_at?: string;
   question_performance: QuestionPerformanceItem[];

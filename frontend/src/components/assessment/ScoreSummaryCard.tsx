@@ -1,4 +1,13 @@
-import { Award, Cpu, Gauge, Sparkles } from 'lucide-react';
+import {
+  Award,
+  CheckCircle2,
+  Clock,
+  Cpu,
+  Gauge,
+  HardDrive,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import { VerdictBadge } from './TestResultsPanel';
 import type { ScoreSummary } from '../../types/assessment';
 
@@ -6,6 +15,13 @@ interface ScoreSummaryCardProps {
   summary: ScoreSummary | null;
   emptyTitle?: string;
   emptyDescription?: string;
+}
+
+function formatQualityScore(score: number): string {
+  if (score <= 10) {
+    return `${score} / 10`;
+  }
+  return `${Math.round(score)} / 100`;
 }
 
 export function ScoreSummaryCard({
@@ -27,6 +43,10 @@ export function ScoreSummaryCard({
     );
   }
 
+  const failedTests =
+    summary.failed_tests ??
+    Math.max(0, summary.total_tests - summary.passed_tests);
+
   return (
     <section
       aria-label="Assessment score summary"
@@ -35,16 +55,30 @@ export function ScoreSummaryCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
         <div className="space-y-1">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Evaluation Summary
+            Final Grading Summary
           </p>
           <h3 className="text-lg font-bold text-slate-900">
             {summary.question_title || 'Adaptive Technical Submission'}
           </h3>
-          {summary.submitted_at && (
-            <p className="text-xs text-slate-500">
-              Submitted {new Date(summary.submitted_at).toLocaleString()}
-            </p>
-          )}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            {summary.submitted_at && (
+              <span>
+                Submitted {new Date(summary.submitted_at).toLocaleString()}
+              </span>
+            )}
+            {summary.execution_time_ms !== undefined && (
+              <span className="inline-flex items-center gap-1 font-mono text-slate-600">
+                <Clock className="h-3 w-3" aria-hidden="true" />
+                <span>{summary.execution_time_ms} ms</span>
+              </span>
+            )}
+            {summary.memory_used_mb !== undefined && (
+              <span className="inline-flex items-center gap-1 font-mono text-slate-600">
+                <HardDrive className="h-3 w-3" aria-hidden="true" />
+                <span>{summary.memory_used_mb.toFixed(1)} MB</span>
+              </span>
+            )}
+          </div>
         </div>
         <VerdictBadge verdict={summary.overall_verdict} />
       </div>
@@ -52,7 +86,7 @@ export function ScoreSummaryCard({
       {/* Primary Numeric Metrics */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3.5">
-          <p className="text-xs font-medium text-slate-500">Overall Score</p>
+          <p className="text-xs font-medium text-slate-500">Final Score</p>
           <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
             {Math.round(summary.overall_score)}
             <span className="text-sm font-medium text-slate-500"> / 100</span>
@@ -68,14 +102,22 @@ export function ScoreSummaryCard({
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3.5">
-          <p className="text-xs font-medium text-slate-500">Test Cases Passed</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
-            {summary.passed_tests}
-            <span className="text-sm font-medium text-slate-500">
-              {' '}
-              / {summary.total_tests}
+        <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-1">
+          <p className="text-xs font-medium text-slate-500">
+            Test Case Outcomes
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5 pt-0.5 text-sm font-bold tabular-nums">
+            <span className="inline-flex items-center gap-1 text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{summary.passed_tests} Passed</span>
             </span>
+            <span className="inline-flex items-center gap-1 text-red-700">
+              <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{failedTests} Failed</span>
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 tabular-nums">
+            {summary.passed_tests} / {summary.total_tests} total cases
           </p>
         </div>
       </div>
@@ -112,14 +154,14 @@ export function ScoreSummaryCard({
                 <span>Optimality</span>
               </p>
               <p className="mt-1 font-semibold tabular-nums text-slate-900">
-                {summary.efficiency.optimality_score} / 10
+                {formatQualityScore(summary.efficiency.optimality_score)}
               </p>
             </div>
 
             <div className="rounded-md bg-white p-2.5 border border-slate-200/80">
               <p className="text-slate-500">Cleanliness</p>
               <p className="mt-1 font-semibold tabular-nums text-slate-900">
-                {summary.efficiency.cleanliness_score} / 10
+                {formatQualityScore(summary.efficiency.cleanliness_score)}
               </p>
             </div>
           </div>
@@ -134,4 +176,3 @@ export function ScoreSummaryCard({
     </section>
   );
 }
-

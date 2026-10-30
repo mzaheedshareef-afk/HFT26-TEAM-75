@@ -6,6 +6,7 @@ import {
   Award,
   CheckCircle2,
   Clock,
+  HardDrive,
   Lightbulb,
   RefreshCw,
   XCircle,
@@ -132,6 +133,8 @@ export function AssessmentResultsPage() {
       completionStatusMeta.completed
     : null;
 
+  const hasPeakMemory = result?.peak_memory_mb !== undefined;
+
   return (
     <DashboardShell role="student">
       <div className="space-y-8">
@@ -149,7 +152,7 @@ export function AssessmentResultsPage() {
               {result?.assessment_title || 'Assessment Results & Analytics'}
             </h1>
             <p className="text-sm text-slate-600">
-              Comprehensive evaluation summary covering deterministic test outcomes, time utilization, question-wise grading, and guarded AI hint usage.
+              Comprehensive evaluation summary covering final score, passed and failed test cases, execution runtime, memory telemetry, and question-wise results.
             </p>
           </div>
 
@@ -192,7 +195,7 @@ export function AssessmentResultsPage() {
                 No Completed Assessment Results Yet
               </h2>
               <p className="mx-auto max-w-md text-xs text-slate-500 leading-relaxed">
-                Complete and submit solutions in an active personalized coding assessment to view your final score, test case breakdown, time taken, and AI hint analytics.
+                Complete and submit solutions in an active personalized coding assessment to view your final score, passed and failed test cases, execution time, and question-wise breakdown.
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
@@ -243,10 +246,12 @@ export function AssessmentResultsPage() {
               )}
             </section>
 
-            {/* Primary KPI Grid: Final Score, Correct & Failed Test Cases, Time Taken, AI Hint Usage */}
+            {/* Primary KPI Grid: Final Score, Passed/Failed Test Cases, Execution Time, Memory Usage (if supplied), AI Hint Usage */}
             <section
               aria-label="Assessment result metrics"
-              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+              className={`grid gap-4 sm:grid-cols-2 ${
+                hasPeakMemory ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
+              }`}
             >
               {/* Final Score */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs space-y-1.5">
@@ -274,19 +279,19 @@ export function AssessmentResultsPage() {
                 )}
               </div>
 
-              {/* Correct & Failed Test Cases */}
+              {/* Passed & Failed Test Cases */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs space-y-2">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                  <span>Test Case Breakdown</span>
+                  <span>Test Case Results</span>
                   <CheckCircle2
                     className="h-4 w-4 text-emerald-600"
                     aria-hidden="true"
                   />
                 </div>
-                <div className="flex items-baseline gap-3">
+                <div className="flex flex-wrap items-baseline gap-3">
                   <span className="inline-flex items-center gap-1 text-sm font-bold text-emerald-700 tabular-nums">
                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>{result.correct_test_cases} Correct</span>
+                    <span>{result.correct_test_cases} Passed</span>
                   </span>
                   <span className="inline-flex items-center gap-1 text-sm font-bold text-red-700 tabular-nums">
                     <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
@@ -298,24 +303,58 @@ export function AssessmentResultsPage() {
                 </p>
               </div>
 
-              {/* Time Taken */}
+              {/* Execution & Elapsed Time */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                  <span>Time Taken</span>
+                  <span>Execution Time</span>
                   <Clock
                     className="h-4 w-4 text-slate-500"
                     aria-hidden="true"
                   />
                 </div>
                 <p className="text-2xl font-bold tabular-nums text-slate-900">
-                  {formatElapsedTime(result.time_taken_seconds)}
+                  {result.total_execution_time_ms !== undefined
+                    ? `${result.total_execution_time_ms} ms`
+                    : formatElapsedTime(result.time_taken_seconds)}
                 </p>
-                {result.time_limit_seconds !== undefined && (
-                  <p className="text-xs text-slate-500">
-                    Out of {formatElapsedTime(result.time_limit_seconds)} limit
-                  </p>
-                )}
+                <p className="text-xs text-slate-500 tabular-nums">
+                  {result.total_execution_time_ms !== undefined ? (
+                    <>
+                      Session duration:{' '}
+                      <span className="font-medium text-slate-700">
+                        {formatElapsedTime(result.time_taken_seconds)}
+                      </span>
+                    </>
+                  ) : result.time_limit_seconds !== undefined ? (
+                    `Out of ${formatElapsedTime(result.time_limit_seconds)} limit`
+                  ) : (
+                    'Assessment session duration'
+                  )}
+                </p>
               </div>
+
+              {/* Memory Usage (strictly displayed only when supplied by backend) */}
+              {result.peak_memory_mb !== undefined && (
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                    <span>Memory Usage</span>
+                    <HardDrive
+                      className="h-4 w-4 text-indigo-600"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums text-slate-900">
+                    {result.peak_memory_mb.toFixed(1)}
+                    <span className="text-sm font-medium text-slate-500">
+                      {' '}
+                      MB
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Peak sandbox memory usage
+                  </p>
+                </div>
+              )}
 
               {/* AI Hint Usage */}
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs space-y-1.5">
@@ -338,14 +377,14 @@ export function AssessmentResultsPage() {
               </div>
             </section>
 
-            {/* Question-Wise Performance Table */}
+            {/* Question-Wise Results Table */}
             <section className="rounded-xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
               <div className="border-b border-slate-200 p-5">
                 <h2 className="text-base font-semibold text-slate-900">
-                  Question-Wise Performance
+                  Question-Wise Results
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Per-problem test case execution outcomes, complexity feedback, AI hint usage, and composite scores.
+                  Per-problem test case execution outcomes, runtime &amp; memory telemetry, complexity feedback, and composite scores.
                 </p>
               </div>
 
@@ -367,7 +406,7 @@ export function AssessmentResultsPage() {
                         '--col-stack': '"Difficulty"',
                         '--col-portfolio': '"Verdict"',
                         '--col-status': '"Test Cases"',
-                        '--col-score': '"AI Hints"',
+                        '--col-score': '"Runtime & Hints"',
                         '--col-actions': '"Score"',
                       } as React.CSSProperties
                     }
@@ -376,7 +415,7 @@ export function AssessmentResultsPage() {
                       id="question-performance-caption"
                       className="sr-only"
                     >
-                      Question-wise technical assessment performance
+                      Question-wise technical assessment results
                     </caption>
                     <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                       <tr>
@@ -393,7 +432,7 @@ export function AssessmentResultsPage() {
                           Test Cases
                         </th>
                         <th scope="col" className="px-4 py-3 font-semibold">
-                          AI Hints
+                          Runtime &amp; Hints
                         </th>
                         <th
                           scope="col"
@@ -459,8 +498,23 @@ export function AssessmentResultsPage() {
                             </span>
                           </td>
 
-                          <td className="px-4 py-3.5 tabular-nums font-medium text-slate-700">
-                            {q.hints_used} used
+                          <td className="px-4 py-3.5 tabular-nums text-slate-700">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {q.execution_time_ms !== undefined && (
+                                <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">
+                                  {q.execution_time_ms} ms
+                                </span>
+                              )}
+                              {q.memory_used_mb !== undefined && (
+                                <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">
+                                  {q.memory_used_mb.toFixed(1)} MB
+                                </span>
+                              )}
+                              <span className="font-medium text-slate-600">
+                                {q.hints_used}{' '}
+                                {q.hints_used === 1 ? 'hint' : 'hints'}
+                              </span>
+                            </div>
                           </td>
 
                           <td className="px-5 py-3.5 text-right font-bold tabular-nums text-slate-900">
@@ -479,4 +533,3 @@ export function AssessmentResultsPage() {
     </DashboardShell>
   );
 }
-
