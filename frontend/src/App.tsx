@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { RecruiterWorkspaceProvider } from './context/RecruiterWorkspaceContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { LandingPage } from './pages/LandingPage';
 import { StudentSignupPage } from './pages/auth/StudentSignupPage';
@@ -8,6 +9,12 @@ import { CompanySignupPage } from './pages/auth/CompanySignupPage';
 import { CompanyLoginPage } from './pages/auth/CompanyLoginPage';
 import { StudentDashboardPage } from './pages/dashboard/StudentDashboardPage';
 import { CompanyDashboardPage } from './pages/dashboard/CompanyDashboardPage';
+import { CandidateDiscoveryPage } from './pages/company/CandidateDiscoveryPage';
+import { CandidateProfileDetailPage } from './pages/company/CandidateProfileDetailPage';
+import { ShortlistedCandidatesPage } from './pages/company/ShortlistedCandidatesPage';
+import { CandidateComparisonPage } from './pages/company/CandidateComparisonPage';
+import { CompanyProfilePage } from './pages/company/CompanyProfilePage';
+import { CompanyAccountSettingsPage } from './pages/company/CompanyAccountSettingsPage';
 import { PortfolioPage } from './pages/student/PortfolioPage';
 import { AssessmentInstructionsPage } from './pages/student/AssessmentInstructionsPage';
 import { AssessmentWorkspacePage } from './pages/student/AssessmentWorkspacePage';
@@ -49,112 +56,162 @@ function NotFoundPage() {
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/student/signup" element={<StudentSignupPage />} />
-      <Route path="/student/login" element={<StudentLoginPage />} />
-      <Route path="/company/signup" element={<CompanySignupPage />} />
-      <Route path="/company/login" element={<CompanyLoginPage />} />
-      <Route path="/profile/:shareId" element={<PublicStudentProfilePage />} />
-      <Route path="/p/:shareId" element={<PublicStudentProfilePage />} />
-      <Route
-        path="/student/dashboard"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <StudentDashboardPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/portfolio"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <PortfolioPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/analytics"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <StudentAnalyticsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/history"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentHistoryPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/profile"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <StudentProfileSettingsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/instructions"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentInstructionsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/:assessmentId/instructions"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentInstructionsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/workspace"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentWorkspacePage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/:assessmentId/workspace"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentWorkspacePage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/results"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentResultsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/student/assessment/:assessmentId/results"
-        element={
-          <ProtectedRoute allowedRole="student">
-            <AssessmentResultsPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/company/dashboard"
-        element={
-          <ProtectedRoute allowedRole="company">
-            <CompanyDashboardPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    <RecruiterWorkspaceProvider>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/student/signup" element={<StudentSignupPage />} />
+        <Route path="/student/login" element={<StudentLoginPage />} />
+        <Route path="/company/signup" element={<CompanySignupPage />} />
+        <Route path="/company/login" element={<CompanyLoginPage />} />
+        <Route path="/profile/:shareId" element={<PublicStudentProfilePage />} />
+        <Route path="/p/:shareId" element={<PublicStudentProfilePage />} />
+        <Route
+          path="/student/dashboard"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <StudentDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/portfolio"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <PortfolioPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/analytics"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <StudentAnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/history"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentHistoryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/profile"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <StudentProfileSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/instructions"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentInstructionsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/:assessmentId/instructions"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentInstructionsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/workspace"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentWorkspacePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/:assessmentId/workspace"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentWorkspacePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/results"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentResultsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/assessment/:assessmentId/results"
+          element={
+            <ProtectedRoute allowedRole="student">
+              <AssessmentResultsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/dashboard"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CompanyDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/candidates"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CandidateDiscoveryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/candidates/:candidateId"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CandidateProfileDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/shortlist"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <ShortlistedCandidatesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/compare"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CandidateComparisonPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/profile"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CompanyProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/company/settings"
+          element={
+            <ProtectedRoute allowedRole="company">
+              <CompanyAccountSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </RecruiterWorkspaceProvider>
   );
 }
 
