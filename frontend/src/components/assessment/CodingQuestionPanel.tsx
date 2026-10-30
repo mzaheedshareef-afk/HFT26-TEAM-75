@@ -3,6 +3,7 @@ import {
   Cpu,
   FileCode2,
   HardDrive,
+  Lightbulb,
   Lock,
   Timer,
 } from 'lucide-react';
@@ -15,6 +16,9 @@ interface CodingQuestionPanelProps {
   question: CodingQuestion | null;
   questionIndex?: number;
   totalQuestions?: number;
+  hintsUsedForQuestion?: number;
+  maxHintsPerQuestion?: number;
+  onOpenAiHints?: () => void;
 }
 
 const difficultyStyles: Record<QuestionDifficulty, string> = {
@@ -27,6 +31,9 @@ export function CodingQuestionPanel({
   question,
   questionIndex = 0,
   totalQuestions = 1,
+  hintsUsedForQuestion = 0,
+  maxHintsPerQuestion = 3,
+  onOpenAiHints,
 }: CodingQuestionPanelProps) {
   if (!question) {
     return (
@@ -58,13 +65,33 @@ export function CodingQuestionPanel({
             Problem {questionIndex + 1} of {totalQuestions} &middot;{' '}
             {question.domain}
           </span>
-          <span
-            className={`inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold ${
-              difficultyStyles[question.difficulty]
-            }`}
-          >
-            {question.difficulty}
-          </span>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenAiHints && (
+              <button
+                type="button"
+                onClick={onOpenAiHints}
+                aria-label={`Open AI Hint Assistant for ${question.title}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors cursor-pointer"
+              >
+                <Lightbulb
+                  className="h-3.5 w-3.5 text-amber-600"
+                  aria-hidden="true"
+                />
+                <span>
+                  AI Hint ({hintsUsedForQuestion}/{maxHintsPerQuestion})
+                </span>
+              </button>
+            )}
+
+            <span
+              className={`inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold ${
+                difficultyStyles[question.difficulty]
+              }`}
+            >
+              {question.difficulty}
+            </span>
+          </div>
         </div>
 
         <h2 className="text-xl font-bold tracking-tight text-slate-900">

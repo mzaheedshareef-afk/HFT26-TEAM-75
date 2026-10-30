@@ -6,8 +6,11 @@ import {
   Code2,
   FolderGit2,
   GraduationCap,
+  History,
   LayoutDashboard,
+  LineChart,
   LogOut,
+  UserCircle2,
 } from 'lucide-react';
 import { BrandLogo } from '../ui/BrandLogo';
 import { Button } from '../ui/Button';
@@ -38,6 +41,21 @@ const studentNavItems: NavItem[] = [
     label: 'Results',
     to: '/student/assessment/results',
     icon: BarChart3,
+  },
+  {
+    label: 'Analytics',
+    to: '/student/analytics',
+    icon: LineChart,
+  },
+  {
+    label: 'History',
+    to: '/student/history',
+    icon: History,
+  },
+  {
+    label: 'Profile',
+    to: '/student/profile',
+    icon: UserCircle2,
   },
 ];
 
@@ -82,7 +100,7 @@ export function DashboardShell({
             <div className="flex items-center gap-3">
               <BrandLogo size="sm" />
               {role === 'student' ? (
-                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                <span className="hidden lg:inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                   <GraduationCap className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>Candidate Workspace</span>
                 </span>
@@ -106,7 +124,7 @@ export function DashboardShell({
                     key={item.to}
                     to={item.to}
                     aria-current={active ? 'page' : undefined}
-                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors ${
                       active
                         ? 'bg-slate-900 text-white'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -122,7 +140,7 @@ export function DashboardShell({
 
           <div className="flex items-center gap-3 sm:gap-4">
             {user && (
-              <div className="hidden sm:block text-right">
+              <div className="hidden xl:block text-right">
                 <p className="text-sm font-medium text-slate-900 leading-tight">
                   {user.name}
                 </p>

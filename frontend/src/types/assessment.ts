@@ -118,7 +118,13 @@ export interface ScoreSummary {
   question_title?: string;
   language?: SupportedLanguage;
   deterministic_score: number; // 0 - 100 weighted hidden/public test score
+  coding_score?: number;
   overall_score: number; // 0 - 100 composite score
+  /**
+   * Official AI efficiency score returned by the backend.
+   * Never calculated in the frontend.
+   */
+  ai_efficiency_score?: number | null;
   passed_tests: number;
   failed_tests?: number;
   total_tests: number;
@@ -157,13 +163,17 @@ export interface AssessmentSummaryItem {
   created_at?: string;
   completed_at?: string;
   final_score?: number | null;
+  coding_score?: number | null;
+  ai_efficiency_score?: number | null;
 }
 
 export type AiHintLevel = 1 | 2 | 3;
 
 export interface AiHintItem {
   hint_id: string;
+  assessment_id?: string;
   question_id: string;
+  question_title?: string;
   level: AiHintLevel;
   category_label: string;
   content: string;
@@ -207,6 +217,7 @@ export interface QuestionPerformanceItem {
   execution_time_ms?: number;
   memory_used_mb?: number;
   hints_used: number;
+  hint_levels_used?: AiHintLevel[];
   detected_time_complexity?: string;
 }
 
@@ -216,6 +227,12 @@ export interface AssessmentResultDetail {
   completion_status: AssessmentCompletionStatus;
   final_score: number;
   deterministic_score?: number;
+  coding_score?: number;
+  /**
+   * Official AI efficiency score returned by the backend.
+   * Never calculated in the frontend.
+   */
+  ai_efficiency_score?: number | null;
   correct_test_cases: number;
   failed_test_cases: number;
   total_test_cases: number;
@@ -224,6 +241,8 @@ export interface AssessmentResultDetail {
   total_execution_time_ms?: number;
   peak_memory_mb?: number;
   total_hints_used: number;
+  hint_levels_used?: AiHintLevel[];
+  hints_viewed?: boolean;
   completed_at?: string;
   question_performance: QuestionPerformanceItem[];
 }
