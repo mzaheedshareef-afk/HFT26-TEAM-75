@@ -1,0 +1,621 @@
+{
+  "info": {
+    "_postman_id": "hft26-auth-collection-uuid-001",
+    "name": "HFT26-TEAM-75 Authentication & RBAC Test Suite",
+    "description": "Integration and Contract Verification Test Collection for Student Auth, Company Auth, and Role-Based Access Control.\nMaintained by Vasil (Testing & Integration Lead).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "studentToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "companyToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01_Student_Authentication",
+      "item": [
+        {
+          "name": "TC_AUTH_STUD_01 - Student Registration (Success)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.collectionVariables.set('dynamicStudentEmail', `student_${ts}@cbit.ac.in`);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response contains access_token and student role', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('access_token');",
+                  "    pm.expect(jsonData.user.role).to.eql('student');",
+                  "    pm.collectionVariables.set('studentToken', jsonData.access_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rohan Verma\",\n  \"email\": \"{{dynamicStudentEmail}}\",\n  \"password\": \"SecurePass123!\",\n  \"github_profile\": \"https://github.com/rohan-cbit\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "register"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_STUD_02 - Student Login (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Extract and update studentToken', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.access_token).to.be.a('string');",
+                  "    pm.expect(jsonData.user.role).to.eql('student');",
+                  "    pm.collectionVariables.set('studentToken', jsonData.access_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"student@cbit.ac.in\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "login"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_STUD_03 - Duplicate Student Registration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test('Error detail states already registered', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.detail.toLowerCase()).to.include('already registered');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate User\",\n  \"email\": \"student@cbit.ac.in\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "register"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_STUD_04 - Invalid Email Format",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422 Unprocessable Entity or 400', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Invalid Email User\",\n  \"email\": \"not-an-email-address\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "register"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_STUD_05 - Incorrect Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"student@cbit.ac.in\",\n  \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "login"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_STUD_06 - Missing Required Fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422 Unprocessable Entity or 400', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Missing Password User\",\n  \"email\": \"nopassword@student.cbit.ac.in\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/student/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "student", "register"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02_Company_Authentication",
+      "item": [
+        {
+          "name": "TC_AUTH_COMP_01 - Company Registration (Success)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const ts = Date.now();",
+                  "pm.collectionVariables.set('dynamicCompEmail', `recruiter_${ts}@globaltech.org`);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response contains access_token and company role', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.access_token).to.be.a('string');",
+                  "    pm.expect(jsonData.user.role).to.eql('company');",
+                  "    pm.collectionVariables.set('companyToken', jsonData.access_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"Global Tech Labs\",\n  \"contact_name\": \"Elena Rostova\",\n  \"email\": \"{{dynamicCompEmail}}\",\n  \"password\": \"Recruiter2026Secret!\",\n  \"website\": \"https://globaltech.org\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/company/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "company", "register"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_COMP_02 - Company Login (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Extract and update companyToken', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.access_token).to.be.a('string');",
+                  "    pm.expect(jsonData.user.role).to.eql('company');",
+                  "    pm.collectionVariables.set('companyToken', jsonData.access_token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"recruiter@techcorp.com\",\n  \"password\": \"CompanySecure2026!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/company/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "company", "login"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_COMP_03 - Duplicate Company Registration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"TechCorp Fake\",\n  \"contact_name\": \"Cloned Recruiter\",\n  \"email\": \"recruiter@techcorp.com\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/company/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "company", "register"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_COMP_04 - Invalid Company Credentials",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nonexistent@company.com\",\n  \"password\": \"BadPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/company/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "company", "login"]
+            }
+          }
+        },
+        {
+          "name": "TC_AUTH_COMP_05 - Missing Company Fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 422 Unprocessable Entity or 400', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_name\": \"No Company Given\",\n  \"email\": \"nocompany@recruiter.com\",\n  \"password\": \"ValidPass123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/company/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "company", "register"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03_Security_and_RBAC",
+      "item": [
+        {
+          "name": "TC_SEC_01 - Protected Route Without Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "TC_SEC_02 - Protected Route With Invalid JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 Unauthorized for malformed JWT', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer this.is.a.malformed.fake.jwt.token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "TC_SEC_03 - Student Accessing Company-Only Route",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 403 Forbidden for cross-role route', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/recruiter/candidates",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "recruiter", "candidates"]
+            }
+          }
+        },
+        {
+          "name": "TC_SEC_04 - Company Accessing Student-Only Route",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 403 Forbidden for company hitting student route', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{companyToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"def solve(): return 42\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assessment/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assessment", "submit"]
+            }
+          }
+        },
+        {
+          "name": "TC_SEC_05 - Valid Student Accessing /api/auth/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Role is student', function () {",
+                  "    const data = pm.response.json();",
+                  "    pm.expect(data.role).to.eql('student');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
