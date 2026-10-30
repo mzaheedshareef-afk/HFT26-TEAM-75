@@ -278,7 +278,7 @@ describe('GateCode Frontend Authentication Module', () => {
       await screen.findByRole('heading', { name: /welcome, candidate/i })
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/student dashboard placeholder/i)
+      screen.getByText(/candidate workspace/i)
     ).toBeInTheDocument();
     expect(localStorage.getItem('gatecode_access_token')).toBe(
       'JWT_STUDENT_TOKEN'
@@ -323,7 +323,7 @@ describe('GateCode Frontend Authentication Module', () => {
       })
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/company dashboard placeholder/i)
+      screen.getByText(/company portal/i)
     ).toBeInTheDocument();
   });
 

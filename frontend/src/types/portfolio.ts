@@ -1,6 +1,54 @@
-// TypeScript API Contracts for Zaheed's Frontend
-// Module: Portfolio Management
-// Aligned with Vasil's FastAPI Backend
+// TypeScript API Contracts for Portfolio Module
+// Unified between Zaheed's Frontend and Vasil's FastAPI Backend
+
+export type PortfolioIngestionStatus =
+  | 'not_uploaded'
+  | 'pending'
+  | 'analyzing'
+  | 'ready'
+  | 'failed';
+
+export interface PortfolioRepositorySummary {
+  name: string;
+  url: string;
+  primaryLanguage?: string;
+  stars?: number;
+  description?: string;
+}
+
+export interface PortfolioProfile {
+  id: string;
+  githubUrl: string;
+  resumeFileName?: string | null;
+  projectArchiveName?: string | null;
+  primaryLanguages: string[];
+  frameworks: string[];
+  status: PortfolioIngestionStatus;
+  updatedAt?: string;
+  repositories?: PortfolioRepositorySummary[];
+  summaryNote?: string;
+  experience_level?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  recommended_tracks?: string[];
+}
+
+export interface PortfolioUploadInput {
+  githubUrl: string;
+  primaryLanguages: string[];
+  frameworks: string[];
+  portfolioNotes?: string;
+  resumeFile?: File | null;
+  projectArchiveFile?: File | null;
+}
+
+export interface PortfolioUploadResponse {
+  success: boolean;
+  portfolio?: PortfolioProfile;
+  message?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
 
 export interface SkillItem {
   name: string;
@@ -71,5 +119,5 @@ export interface PortfolioDetail {
 
 export interface PortfolioResponse {
   success: boolean;
-  portfolio: PortfolioDetail;
+  portfolio: PortfolioProfile;
 }

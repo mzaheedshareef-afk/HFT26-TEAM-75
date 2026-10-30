@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.app.api.routes.auth import router as auth_router
+from backend.app.api.routes.portfolio import router as portfolio_router
 from backend.app.core.config import settings
 from backend.app.core.security import AuthException
 
@@ -160,3 +161,10 @@ app.include_router(
     prefix="/api/auth",
     tags=["Authentication"],
 )
+
+app.include_router(
+    portfolio_router,
+    prefix="/api/portfolio",
+    tags=["Portfolio"],
+)
+
