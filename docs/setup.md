@@ -90,6 +90,7 @@ In the Supabase **SQL Editor**, execute in sequential order:
 2. `database/migrations/002_portfolio_and_assessment.sql`: `portfolios`, `assessments`, and `assessment_questions` tables.
 3. `database/migrations/003_submissions_and_grading.sql`: `submissions` and `assessment_results` tables with strict RLS policies.
 4. `database/migrations/004_ai_hints_analytics_profiles.sql`: `ai_hint_interactions`, `assessment_ai_metrics`, and `student_public_profiles` tables with ownership and public-view RLS policies.
+5. `database/migrations/005_recruiter_and_shortlists.sql`: `company_profiles` and `company_shortlists` tables with company isolation RLS policies.
 
 ### 3.4 Retrieve API Credentials
 Navigate to **Project Settings > API**:
@@ -279,7 +280,70 @@ When a profile is accessed publicly via `GET /api/public/profile/{share_id}`:
 
 ---
 
-## 10. Automated Testing Suite
+
+---
+
+## 10. Recruiter Backend, Candidate Discovery & Shortlisting
+
+Company recruiters can search verified public candidate profiles, inspect technical accomplishments, manage company shortlists with private notes, and perform multi-candidate comparative evaluations.
+
+### 10.1 Recruiter Endpoints
+
+| Endpoint | Method | Role | Description |
+| :--- | :---: | :---: | :--- |
+| `/api/company/me` | `GET` | Company | Retrieve authenticated company profile and hiring preferences |
+| `/api/company/me` | `PATCH` / `PUT` | Company | Update company details (industry, size, website, description) |
+| `/api/recruiter/dashboard` | `GET` | Company | Aggregated talent pool metrics, skill counts, and shortlist activity |
+| `/api/recruiter/candidates` | `GET` | Company | Search & filter public talent pool with pagination and sorting |
+| `/api/recruiter/candidates/{student_id}` | `GET` | Company | View verified candidate profile demarcating self-reported vs. verified metrics |
+| `/api/recruiter/shortlist/{student_id}` | `POST` | Company | Add candidate to company shortlist with optional evaluation notes |
+| `/api/recruiter/shortlist/{student_id}` | `DELETE` | Company | Remove candidate from company shortlist |
+| `/api/recruiter/shortlist/{student_id}/notes` | `PATCH` / `PUT` | Company | Update private recruiter evaluation notes on a shortlisted candidate |
+| `/api/recruiter/shortlist` | `GET` | Company | Retrieve company shortlist with dynamic visibility re-checking |
+| `/api/recruiter/compare` | `POST` | Company | Multi-candidate structured comparison (2 to 4 public candidates) |
+
+### 10.2 Candidate Discovery & Search Filters
+
+Recruiters can filter candidates using flexible, server-side parameters:
+- `query` / `q`: Free-text search matching name, headline, bio, or skills.
+- `languages`: Comma-separated programming languages (e.g. `Python,C++`).
+- `skills`: Comma-separated technical skills (e.g. `Algorithms,FastAPI`).
+- `frameworks`: Comma-separated project frameworks (e.g. `Docker,React`).
+- `domain`: Problem domain or topic mastery.
+- `min_score` & `max_score`: Minimum and maximum overall composite score (0-100).
+- `min_coding_score`: Filter candidates by deterministic coding score threshold.
+- `min_ai_efficiency_score`: Filter by AI interaction efficiency score threshold.
+- `min_consistency`: Filter by performance consistency score.
+- `min_completions`: Minimum number of completed platform assessments.
+- `min_improvement`: Trajectory improvement delta threshold.
+- `sort_by`: Sort candidates by `highest_score`, `highest_coding_score`, `highest_ai_efficiency`, `highest_improvement`, `highest_consistency`, `most_relevant`, or `recently_updated`.
+- `page` & `limit`: Server-side pagination (default 10 items/page, max 100).
+
+### 10.3 Privacy & Candidate Demarcation Model
+
+When recruiters view candidate profiles:
+1. **Clear Demarcation**:
+   - **Self-Reported Portfolio**: Candidate-provided project repositories, declared skills, and resume summaries.
+   - **Verified Assessment Data**: Authentically evaluated composite score (Formula v1.0), deterministic coding score, AI efficiency score, completed assessment count, verified achievements, and topic mastery.
+2. **Zero Sensitive Data Exposure**: Candidate emails, passwords, auth tokens, internal user UUIDs, source code, and hidden test inputs/outputs are never returned.
+3. **Visibility Enforcement**:
+   - Private student profiles (`visibility: "private"`) are strictly omitted from discovery search.
+   - Direct requests to private candidate profiles return HTTP `403 CANDIDATE_PROFILE_PRIVATE`.
+   - If a shortlisted candidate sets their profile to private, `GET /api/recruiter/shortlist` marks `is_visible: false` and redacts profile details while preserving internal notes.
+4. **Company Isolation**:
+   - Shortlists and recruiter notes are strictly scoped to the authenticated company (`auth.uid() = company_id`).
+   - Other companies and students have zero access to company shortlist records.
+
+### 10.4 Multi-Candidate Comparison (Formula & Evidence-Based)
+
+Recruiters can compare 2 to 4 candidates simultaneously via `POST /api/recruiter/compare`:
+- Extracts common skills across all candidates and catalogs all unique technical proficiencies.
+- Evaluates deterministic metric leaders across composite score, coding score, AI efficiency, consistency, and trajectory improvement without LLM hallucination.
+- Rejects comparisons containing more than 4 candidates or any private candidate.
+
+---
+
+## 11. Automated Testing Suite
 
 ### 10.1 Backend Test Suites (Pytest)
 From the repository root:
@@ -290,7 +354,8 @@ python -m pytest backend/tests/ -v
 # Run full-stack and contract integration test suites
 python -m pytest tests/ -v
 ```
-**Total:** **134 Passed / 0 Failed**
+**Total:** **161 Passed / 0 Failed**
+- `backend/tests/test_recruiter.py` (27 passed)
 - `backend/tests/test_ai_analytics_profiles.py` (23 passed)
 - `backend/tests/test_auth.py` (22 passed)
 - `backend/tests/test_grading.py` (27 passed)
@@ -306,7 +371,7 @@ npm test -- --run
 
 ---
 
-## 11. Verification & Security Checklist
+## 12. Verification & Security Checklist
 
 | Scenario | Expected Result | Verified |
 | :--- | :--- | :---: |
@@ -323,3 +388,10 @@ npm test -- --run
 | **Public Profile Privacy** | Zero exposure of email, user UUIDs, auth tokens, source code, or hidden tests | ✅ |
 | **Instant Link Revocation** | Revoking `share_id` immediately disables the previous link with `404 Not Found` | ✅ |
 | **Container Cleanup** | Disposable execution containers destroyed immediately on completion or failure | ✅ |
+| **Recruiter Authorization** | Company role strictly enforced; student access rejected (`403 ROLE_MISMATCH`) | ✅ |
+| **Candidate Discovery Search** | Multi-factor filtering, sorting, pagination; private profiles excluded | ✅ |
+| **Portfolio/Assessment Demarcation** | Clearly separates self-reported projects from verified platform evaluation | ✅ |
+| **Candidate Privacy & Scrubbing** | Zero exposure of emails, internal UUIDs, raw code, or hidden tests | ✅ |
+| **Company Shortlist Isolation** | Unique (company, student) pair; notes and shortlists isolated per company | ✅ |
+| **Shortlist Visibility Recheck** | Revoked candidate profiles dynamically flagged as private with redacted details | ✅ |
+| **Deterministic Comparison** | Side-by-side metric leaders across 2-4 candidates; zero LLM ranking reliance | ✅ |

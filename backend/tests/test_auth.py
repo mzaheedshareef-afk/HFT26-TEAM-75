@@ -61,6 +61,10 @@ class MockQueryBuilder:
         self._data_to_update = data
         return self
 
+    def delete(self):
+        self._action = "delete"
+        return self
+
     def eq(self, column: str, value: Any):
         self._filters.append((column, str(value)))
         return self
@@ -97,6 +101,15 @@ class MockQueryBuilder:
             for r in results:
                 if self._data_to_update:
                     r.update(self._data_to_update)
+            return type("PostgrestResponse", (), {"data": results})()
+
+        elif self._action == "delete":
+            results = list(table_records)
+            for col, val in self._filters:
+                results = [r for r in results if str(r.get(col)) == val]
+            for r in results:
+                if r in table_records:
+                    table_records.remove(r)
             return type("PostgrestResponse", (), {"data": results})()
 
         return type("PostgrestResponse", (), {"data": []})()
