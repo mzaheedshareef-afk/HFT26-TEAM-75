@@ -34,10 +34,25 @@ def validate_password_strength(password: str) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
+_jwks_client: Optional[jwt.PyJWKClient] = None
+
+
+def get_jwks_client() -> Optional[jwt.PyJWKClient]:
+    global _jwks_client
+    if _jwks_client is None and settings.SUPABASE_URL and "placeholder" not in settings.SUPABASE_URL:
+        try:
+            jwks_url = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+            _jwks_client = jwt.PyJWKClient(jwks_url)
+        except Exception:
+            _jwks_client = None
+    return _jwks_client
+
+
 def verify_supabase_jwt(token: str) -> Dict[str, Any]:
     """
     Cryptographically verify incoming Supabase access token signature and expiration.
-    Uses SUPABASE_JWT_SECRET to prevent accepting untrusted or forged tokens.
+    Supports both modern ES256 asymmetric signatures (via Supabase JWKS) and
+    HS256 symmetric signatures (via SUPABASE_JWT_SECRET).
     """
     if not token or not isinstance(token, str):
         raise AuthException(
@@ -51,11 +66,26 @@ def verify_supabase_jwt(token: str) -> Dict[str, Any]:
         clean_token = clean_token[7:].strip()
 
     try:
+        header = jwt.get_unverified_header(clean_token)
+        alg = header.get("alg", "HS256")
+
+        if alg in ["ES256", "RS256"]:
+            jwks = get_jwks_client()
+            if jwks:
+                signing_key = jwks.get_signing_key_from_jwt(clean_token)
+                return jwt.decode(
+                    clean_token,
+                    signing_key.key,
+                    algorithms=[alg],
+                    options={"verify_signature": True, "verify_exp": True, "verify_aud": False},
+                )
+
+        # Fallback to HS256 with JWT secret
         payload = jwt.decode(
             clean_token,
             settings.SUPABASE_JWT_SECRET,
             algorithms=["HS256"],
-            options={"verify_signature": True, "verify_exp": True},
+            options={"verify_signature": True, "verify_exp": True, "verify_aud": False},
         )
         return payload
     except jwt.ExpiredSignatureError:
@@ -64,10 +94,10 @@ def verify_supabase_jwt(token: str) -> Dict[str, Any]:
             message="Token has expired",
             status_code=401,
         )
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, jwt.PyJWKClientError) as e:
         raise AuthException(
             code="INVALID_TOKEN",
-            message="Invalid or malformed token signature",
+            message=f"Invalid or malformed token signature: {str(e)}",
             status_code=401,
         )
     except Exception as e:
