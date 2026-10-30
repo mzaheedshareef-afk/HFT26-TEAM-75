@@ -188,12 +188,24 @@ class ProfileService:
 
         # Sanitize permitted update fields
         allowed_fields = (
-            "public_name", "headline", "bio", "skills",
-            "technologies", "projects", "portfolio_highlights",
+            "public_name", "display_name", "headline", "bio", "summary", "skills",
+            "technologies", "projects", "portfolio_highlights", "github_url", "linkedin_url",
         )
         for field in allowed_fields:
             if field in updates and updates[field] is not None:
                 profile[field] = updates[field]
+
+        if "display_name" in updates and updates["display_name"]:
+            profile["public_name"] = str(updates["display_name"])
+            profile["display_name"] = str(updates["display_name"])
+        elif "public_name" in updates and updates["public_name"]:
+            profile["display_name"] = str(updates["public_name"])
+
+        if "summary" in updates and updates["summary"]:
+            profile["bio"] = str(updates["summary"])
+            profile["summary"] = str(updates["summary"])
+        elif "bio" in updates and updates["bio"]:
+            profile["summary"] = str(updates["bio"])
 
         profile["updated_at"] = now_iso
         _public_profiles_store[user_id] = profile
@@ -312,11 +324,18 @@ class ProfileService:
                 logger.debug("Database public profile query note: %s", e)
 
         # 3. Check visibility and existence
-        if not profile or profile.get("visibility") != "public":
+        if not profile:
             raise AuthException(
                 code="PROFILE_NOT_FOUND",
-                message="Public profile not found, revoked, or set to private by the student.",
+                message="Public profile not found or revoked.",
                 status_code=404,
+            )
+
+        if profile.get("visibility") != "public":
+            raise AuthException(
+                code="PROFILE_PRIVATE",
+                message="This student profile is private and not available for public viewing.",
+                status_code=403,
             )
 
         # 4. Strictly sanitize and return ONLY safe public fields

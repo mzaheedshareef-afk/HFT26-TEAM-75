@@ -302,7 +302,7 @@ From `frontend/`:
 cd frontend
 npm test -- --run
 ```
-**Total:** **28 Passed / 0 Failed** (`portfolio.test.tsx`, `assessment.test.tsx`, `auth.test.tsx`).
+**Total:** **37 Passed / 0 Failed** (`portfolio.test.tsx`, `assessment.test.tsx`, `aiAnalyticsProfiles.test.tsx`, `auth.test.tsx`).
 
 ---
 

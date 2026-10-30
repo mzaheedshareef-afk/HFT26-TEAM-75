@@ -19,7 +19,7 @@ from backend.app.schemas.assistant import (
 )
 from backend.app.services.assessment_service import AssessmentService
 from backend.app.services.auth_service import AuthService
-from backend.app.services.hint_service import HintService
+from backend.app.services.hint_service import HintService, _hint_interactions_store
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,46 @@ def request_assistant_hint_direct(
     )
 
 
+@assistant_router.get(
+    "/hints",
+    summary="Get previously delivered hints (supporting assistantService query format)",
+)
+@assistant_router.get(
+    "/history",
+    summary="Get previously delivered hints (alias for /hints)",
+)
+def get_assistant_hints_by_query(
+    assessment_id: Optional[str] = Query(None),
+    question_id: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Retrieves hint interaction history by query parameters for frontend assistantService."""
+    user_id = str(current_user["id"])
+    if assessment_id:
+        AssessmentService.get_assessment_by_id(client, assessment_id, current_user)
+        if question_id:
+            hints = HintService.get_question_hint_history(client, assessment_id, question_id, user_id)
+        else:
+            hints = HintService.get_assessment_hints(client, assessment_id, user_id)
+    else:
+        hints = []
+        for aid, h_list in _hint_interactions_store.items():
+            for h in h_list:
+                if str(h.get("user_id")) == user_id:
+                    if not question_id or str(h.get("question_id")) == question_id:
+                        hints.append(h)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "hints": hints,
+            "total_hints": len(hints),
+        },
+    )
+
+
 @assessment_hint_router.post(
     "/{assessment_id}/questions/{question_id}/hint",
     summary="Request next progressive AI hint for assessment question",
@@ -156,6 +196,46 @@ def request_question_hint(
             "hint_level": hint_record["hint_level"],
             "sanitized_redacted": hint_record.get("sanitized_redacted", False),
             "created_at": hint_record["created_at"],
+        },
+    )
+
+
+@assistant_router.get(
+    "/hints",
+    summary="Get previously delivered hints (supporting assistantService query format)",
+)
+@assistant_router.get(
+    "/history",
+    summary="Get previously delivered hints (alias for /hints)",
+)
+def get_assistant_hints_by_query(
+    assessment_id: Optional[str] = Query(None),
+    question_id: Optional[str] = Query(None),
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Retrieves hint interaction history by query parameters for frontend assistantService."""
+    user_id = str(current_user["id"])
+    if assessment_id:
+        AssessmentService.get_assessment_by_id(client, assessment_id, current_user)
+        if question_id:
+            hints = HintService.get_question_hint_history(client, assessment_id, question_id, user_id)
+        else:
+            hints = HintService.get_assessment_hints(client, assessment_id, user_id)
+    else:
+        hints = []
+        for aid, h_list in _hint_interactions_store.items():
+            for h in h_list:
+                if str(h.get("user_id")) == user_id:
+                    if not question_id or str(h.get("question_id")) == question_id:
+                        hints.append(h)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "hints": hints,
+            "total_hints": len(hints),
         },
     )
 
