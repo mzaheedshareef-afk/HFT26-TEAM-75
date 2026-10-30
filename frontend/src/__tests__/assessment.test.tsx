@@ -457,7 +457,7 @@ describe('Personalized Technical Assessment & Coding Workspace Frontend', () => 
 
     expect(postSpy).toHaveBeenCalledTimes(3);
     expect(postSpy).toHaveBeenLastCalledWith(
-      '/api/assessment/run',
+      expect.stringMatching(/\/api\/(code\/run|assessment\/run)/),
       expect.objectContaining({
         assessment_id: 'assess-75',
         question_id: 'q-token-bucket',

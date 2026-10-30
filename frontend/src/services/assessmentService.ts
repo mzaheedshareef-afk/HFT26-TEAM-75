@@ -581,12 +581,16 @@ export function normalizeScoreSummary(
         ? raw.deterministic_score
         : typeof raw.overall_score === 'number'
         ? raw.overall_score
+        : typeof raw.score === 'number'
+        ? raw.score
         : 0,
     overall_score:
       typeof raw.overall_score === 'number'
         ? raw.overall_score
         : typeof raw.deterministic_score === 'number'
         ? raw.deterministic_score
+        : typeof raw.score === 'number'
+        ? raw.score
         : 0,
     passed_tests: passedTests,
     failed_tests: failedTests,
@@ -1144,10 +1148,11 @@ export const assessmentService = {
    * Never fabricates fake execution results on error.
    */
   async runPublicTests(payload: RunCodePayload): Promise<CodeRunResponse> {
-    const response = await api.post<unknown>('/api/assessment/run', {
+    const response = await api.post<unknown>('/api/code/run', {
       assessment_id: payload.assessmentId,
       question_id: payload.questionId,
       language: payload.language,
+      source_code: payload.code,
       code: payload.code,
     });
     return normalizeCodeRunResponse(response.data, payload.questionId);
@@ -1160,10 +1165,11 @@ export const assessmentService = {
   async submitSolution(
     payload: SubmitCodePayload
   ): Promise<SubmitSolutionApiResponse> {
-    const response = await api.post<unknown>('/api/submissions', {
+    const response = await api.post<unknown>('/api/code/submit', {
       assessment_id: payload.assessmentId,
       question_id: payload.questionId,
       language: payload.language,
+      source_code: payload.code,
       code: payload.code,
       elapsed_seconds: payload.elapsedSeconds,
       hints_used: payload.hintsUsed,
