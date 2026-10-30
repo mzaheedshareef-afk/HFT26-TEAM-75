@@ -245,3 +245,9 @@ app.include_router(
     prefix="/api/public/profile",
     tags=["Public Profile"],
 )
+
+app.include_router(
+    public_profile_router,
+    prefix="/api/public-profile",
+    tags=["Public Profile"],
+)

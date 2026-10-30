@@ -60,6 +60,11 @@ def require_student_user(
     summary="Get authenticated student's profile details",
     response_model=StudentProfileMeResponse,
 )
+@profile_router.get(
+    "",
+    summary="Get authenticated student's profile details",
+    response_model=StudentProfileMeResponse,
+)
 def get_my_profile(
     current_user: Dict[str, Any] = Depends(require_student_user),
     client: Client = Depends(get_supabase_client),
@@ -93,8 +98,23 @@ def get_my_profile(
     )
 
 
+@profile_router.put(
+    "/me",
+    summary="Update authenticated student's profile details",
+    response_model=StudentProfileMeResponse,
+)
 @profile_router.patch(
     "/me",
+    summary="Update authenticated student's profile details",
+    response_model=StudentProfileMeResponse,
+)
+@profile_router.put(
+    "",
+    summary="Update authenticated student's profile details",
+    response_model=StudentProfileMeResponse,
+)
+@profile_router.patch(
+    "",
     summary="Update authenticated student's profile details",
     response_model=StudentProfileMeResponse,
 )
@@ -137,6 +157,18 @@ def update_my_profile(
     "/me/visibility",
     summary="Update profile visibility (public or private)",
 )
+@profile_router.put(
+    "/me/visibility",
+    summary="Update profile visibility (public or private)",
+)
+@profile_router.patch(
+    "/visibility",
+    summary="Update profile visibility (public or private)",
+)
+@profile_router.put(
+    "/visibility",
+    summary="Update profile visibility (public or private)",
+)
 def update_profile_visibility(
     payload: ProfileVisibilityRequest,
     current_user: Dict[str, Any] = Depends(require_student_user),
@@ -158,6 +190,10 @@ def update_profile_visibility(
 
 @profile_router.post(
     "/me/revoke",
+    summary="Revoke existing public share link and generate new share ID",
+)
+@profile_router.post(
+    "/revoke",
     summary="Revoke existing public share link and generate new share ID",
 )
 def revoke_profile_share_link(
@@ -183,6 +219,11 @@ def revoke_profile_share_link(
 
 @public_profile_router.get(
     "/{share_id}",
+    summary="Get verified public student profile by share ID",
+    response_model=PublicStudentProfileView,
+)
+@profile_router.get(
+    "/public/{share_id}",
     summary="Get verified public student profile by share ID",
     response_model=PublicStudentProfileView,
 )

@@ -609,6 +609,14 @@ class GradingEngine:
 
         result = cls._update_assessment_results(client, assessment_id, req_user_id)
 
+        from backend.app.services.hint_service import HintService
+        from backend.app.services.efficiency_service import AIEfficiencyScorer
+
+        hints = HintService.get_assessment_hints(client, assessment_id, req_user_id)
+        hints_by_q: Dict[str, List[Dict[str, Any]]] = {}
+        for h in hints:
+            hints_by_q.setdefault(str(h.get("question_id")), []).append(h)
+
         # Build detailed question performance list
         questions = _assessment_questions_store.get(assessment_id, [])
         all_subs = [
@@ -621,6 +629,9 @@ class GradingEngine:
             qid = str(q.get("id") or q.get("question_id"))
             q_subs = [s for s in all_subs if str(s.get("question_id")) == qid]
             best_sub = sorted(q_subs, key=lambda s: float(s.get("score", 0.0)), reverse=True)[0] if q_subs else None
+            q_hints = hints_by_q.get(qid, [])
+            hints_count = len(q_hints)
+            q_hint_levels = sorted({int(h.get("hint_level", 1)) for h in q_hints})
 
             if best_sub:
                 status_val = best_sub.get("status", "wrong_answer")
@@ -656,30 +667,47 @@ class GradingEngine:
                 "time_taken_seconds": 0,
                 "execution_time_ms": exec_ms,
                 "memory_used_mb": mem_mb,
-                "hints_used": 0,
+                "hints_used": hints_count,
+                "hint_levels_used": q_hint_levels,
                 "detected_time_complexity": complexity,
             })
 
         total_passed = sum(p["passed_tests"] for p in question_perf)
         total_failed = sum(p["failed_tests"] for p in question_perf)
         total_tests = sum(p["total_tests"] for p in question_perf)
-        total_score = float(result.get("total_score", 0.0))
+        coding_score = float(result.get("total_score", 0.0))
         title = assessment_record.get("title", "Personalized Technical Assessment") if assessment_record else "Personalized Technical Assessment"
         status_str = assessment_record.get("status", "completed") if assessment_record else "completed"
+
+        eff_eval = AIEfficiencyScorer.calculate_efficiency_score(
+            coding_score=coding_score,
+            hint_interactions=hints,
+            questions=questions,
+            submissions=all_subs,
+        )
+        ai_eff_score = eff_eval["ai_efficiency_score"]
+        final_score = eff_eval["final_score"]
+        all_hint_levels = sorted({int(h.get("hint_level", 1)) for h in hints})
 
         enriched = {
             "assessment_id": assessment_id,
             "assessment_title": title,
             "completion_status": status_str,
             "status": status_str,
-            "final_score": total_score,
-            "deterministic_score": total_score,
-            "total_score": total_score,
+            "coding_score": coding_score,
+            "deterministic_score": coding_score,
+            "ai_efficiency_score": ai_eff_score,
+            "final_score": final_score,
+            "total_score": final_score,
+            "formula_version": eff_eval["formula_version"],
+            "scoring_components": eff_eval["scoring_components"],
             "correct_test_cases": total_passed,
             "failed_test_cases": total_failed,
             "total_test_cases": total_tests,
             "time_taken_seconds": assessment_record.get("duration_seconds", 3600) if assessment_record else 3600,
-            "total_hints_used": 0,
+            "total_hints_used": len(hints),
+            "hint_levels_used": all_hint_levels,
+            "hints_viewed": len(hints) > 0,
             "completed_at": assessment_record.get("completed_at") if assessment_record else None,
             "question_performance": question_perf,
             "question_scores": result.get("question_scores", {}),

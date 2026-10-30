@@ -246,6 +246,23 @@ def get_latest_assessment_results(
 
 
 @router.get(
+    "/history",
+    summary="Get candidate assessment history (alias for /api/analytics/history)",
+)
+def get_assessment_history_alias(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Retrieves full candidate assessment history with score breakdown."""
+    from backend.app.services.analytics_service import AnalyticsService
+    history = AnalyticsService.get_candidate_assessment_history(client, current_user)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=history,
+    )
+
+
+@router.get(
     "/{assessment_id}",
     summary="Get assessment by ID",
     response_model=AssessmentApiResponse,

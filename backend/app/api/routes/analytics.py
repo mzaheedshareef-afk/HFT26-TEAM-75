@@ -52,6 +52,16 @@ def require_student_user(
     summary="Get authenticated student dashboard analytics",
     response_model=StudentDashboardAnalytics,
 )
+@router.get(
+    "/student",
+    summary="Get authenticated student dashboard analytics (alias for /me)",
+    response_model=StudentDashboardAnalytics,
+)
+@router.get(
+    "",
+    summary="Get authenticated student dashboard analytics (base alias)",
+    response_model=StudentDashboardAnalytics,
+)
 def get_student_dashboard_analytics_endpoint(
     current_user: Dict[str, Any] = Depends(require_student_user),
     client: Client = Depends(get_supabase_client),
@@ -79,6 +89,11 @@ def get_student_dashboard_analytics_endpoint(
     summary="Get authenticated student assessment history",
     response_model=List[AssessmentHistoryItem],
 )
+@router.get(
+    "/history",
+    summary="Get authenticated student assessment history (alias for /me/history)",
+    response_model=List[AssessmentHistoryItem],
+)
 def get_student_assessment_history_endpoint(
     current_user: Dict[str, Any] = Depends(require_student_user),
     client: Client = Depends(get_supabase_client),
@@ -97,6 +112,11 @@ def get_student_assessment_history_endpoint(
 @router.get(
     "/me/results/{assessment_id}",
     summary="Get detailed analytics report for single assessment",
+    response_model=AssessmentResultAnalyticsResponse,
+)
+@router.get(
+    "/results/{assessment_id}",
+    summary="Get detailed analytics report for single assessment (alias for /me/results/{id})",
     response_model=AssessmentResultAnalyticsResponse,
 )
 def get_assessment_result_analytics_endpoint(
