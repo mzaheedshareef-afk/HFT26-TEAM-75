@@ -1,0 +1,36 @@
+services:
+  # Multi-language Sandbox Runner Image Builder
+  sandbox-runner:
+    build:
+      context: .
+      dockerfile: sandbox/docker/Dockerfile.unified
+    image: hft26-sandbox-runner:latest
+    network_mode: none
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+          pids: 64
+
+  # Individual language images
+  sandbox-python:
+    build:
+      context: .
+      dockerfile: sandbox/docker/Dockerfile.python
+    image: hft26-sandbox-python:latest
+    network_mode: none
+
+  sandbox-cpp:
+    build:
+      context: .
+      dockerfile: sandbox/docker/Dockerfile.cpp
+    image: hft26-sandbox-cpp:latest
+    network_mode: none
+
+  sandbox-java:
+    build:
+      context: .
+      dockerfile: sandbox/docker/Dockerfile.java
+    image: hft26-sandbox-java:latest
+    network_mode: none
