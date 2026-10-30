@@ -65,3 +65,4 @@ By default, the frontend expects the backend API at `http://localhost:8000` (con
 - `npm run dev` — Start Vite development server
 - `npm run test` — Run automated validation & authentication test suite
 - `npm run build` — Type-check and create production bundle
+

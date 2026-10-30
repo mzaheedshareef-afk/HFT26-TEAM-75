@@ -45,3 +45,4 @@ export function RoleSwitchTabs({ activeRole, mode }: RoleSwitchTabsProps) {
     </div>
   );
 }
+

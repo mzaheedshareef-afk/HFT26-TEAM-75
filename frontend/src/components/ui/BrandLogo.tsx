@@ -27,3 +27,4 @@ export function BrandLogo({ to = '/', size = 'md' }: BrandLogoProps) {
     </Link>
   );
 }
+

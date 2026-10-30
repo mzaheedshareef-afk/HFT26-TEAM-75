@@ -28,10 +28,16 @@ interface BackendValidationItem {
   msg?: string;
 }
 
+interface BackendErrorObject {
+  code?: string;
+  message?: string;
+}
+
 interface BackendErrorPayload {
+  success?: boolean;
   detail?: string | BackendValidationItem[];
   message?: string;
-  error?: string;
+  error?: string | BackendErrorObject;
 }
 
 /**
@@ -78,6 +84,15 @@ export function extractApiErrorMessage(
       if (typeof data.error === 'string' && data.error.trim()) {
         return data.error.trim();
       }
+
+      if (
+        typeof data.error === 'object' &&
+        data.error !== null &&
+        typeof data.error.message === 'string' &&
+        data.error.message.trim()
+      ) {
+        return data.error.message.trim();
+      }
     }
 
     if (status === 401) {
@@ -100,3 +115,4 @@ export function extractApiErrorMessage(
 
   return fallbackMessage;
 }
+

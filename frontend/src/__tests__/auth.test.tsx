@@ -156,7 +156,13 @@ describe('GateCode Frontend Authentication Module', () => {
   it('displays backend error message for incorrect credentials (401)', async () => {
     const user = userEvent.setup();
     vi.spyOn(api, 'post').mockRejectedValueOnce(
-      createAxiosError(401, { detail: 'Invalid email or password' })
+      createAxiosError(401, {
+        success: false,
+        error: {
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid email or password',
+        },
+      })
     );
 
     renderAtRoute('/student/login');
