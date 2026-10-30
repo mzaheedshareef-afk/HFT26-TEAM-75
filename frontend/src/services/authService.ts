@@ -165,6 +165,17 @@ export const authService = {
     return validateAuthSuccessPayload(response.data, 'company');
   },
 
+  async getMe(): Promise<AuthUser> {
+    const response = await api.get<{ success: boolean; user: AuthUser }>(
+      '/api/auth/me'
+    );
+    const data = response.data;
+    if (!data.success || !data.user) {
+      throw new Error('Unable to retrieve user session profile.');
+    }
+    return data.user;
+  },
+
   saveSession(session: AuthSession): void {
     localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, session.accessToken);
     localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(session.user));

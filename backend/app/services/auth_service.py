@@ -68,16 +68,41 @@ class AuthService:
 
         try:
             # 1. Register with Supabase Auth
-            auth_response = client.auth.sign_up({
-                "email": request.email,
-                "password": request.password,
-                "options": {
-                    "data": {
-                        "full_name": request.full_name,
-                        "role": "student",
-                    }
-                },
-            })
+            auth_response = None
+            if hasattr(client.auth, "admin"):
+                try:
+                    admin_res = client.auth.admin.create_user({
+                        "email": request.email,
+                        "password": request.password,
+                        "email_confirm": True,
+                        "user_metadata": {
+                            "full_name": request.full_name,
+                            "role": "student",
+                        },
+                    })
+                    if admin_res and hasattr(admin_res, "user") and admin_res.user:
+                        auth_response = type("AuthResponseHolder", (), {"user": admin_res.user, "session": None})()
+                except Exception as admin_err:
+                    admin_err_str = str(admin_err).lower()
+                    if "already registered" in admin_err_str or "already exists" in admin_err_str:
+                        raise AuthException(
+                            code="EMAIL_ALREADY_EXISTS",
+                            message="An account with this email already exists",
+                            status_code=409,
+                        )
+                    logger.debug(f"admin.create_user skipped: {admin_err}")
+
+            if not auth_response:
+                auth_response = client.auth.sign_up({
+                    "email": request.email,
+                    "password": request.password,
+                    "options": {
+                        "data": {
+                            "full_name": request.full_name,
+                            "role": "student",
+                        }
+                    },
+                })
 
             user = auth_response.user
             if not user or (hasattr(user, "identities") and user.identities == []):
@@ -141,6 +166,12 @@ class AuthService:
                     message="Password does not meet security criteria",
                     status_code=400,
                 )
+            if "rate limit" in err_str or "too many requests" in err_str or "over_email_send_rate_limit" in err_str:
+                raise AuthException(
+                    code="RATE_LIMIT_EXCEEDED",
+                    message="Sign-up email rate limit reached. Please disable 'Confirm email' in Supabase Authentication settings or try again later.",
+                    status_code=429,
+                )
             logger.error(f"Supabase auth error during student registration: {e}")
             raise AuthException(
                 code="SUPABASE_AUTH_ERROR",
@@ -170,17 +201,43 @@ class AuthService:
 
         try:
             # 1. Register with Supabase Auth
-            auth_response = client.auth.sign_up({
-                "email": request.official_email,
-                "password": request.password,
-                "options": {
-                    "data": {
-                        "company_name": request.company_name,
-                        "full_name": request.company_name,
-                        "role": "company",
-                    }
-                },
-            })
+            auth_response = None
+            if hasattr(client.auth, "admin"):
+                try:
+                    admin_res = client.auth.admin.create_user({
+                        "email": request.official_email,
+                        "password": request.password,
+                        "email_confirm": True,
+                        "user_metadata": {
+                            "company_name": request.company_name,
+                            "full_name": request.company_name,
+                            "role": "company",
+                        },
+                    })
+                    if admin_res and hasattr(admin_res, "user") and admin_res.user:
+                        auth_response = type("AuthResponseHolder", (), {"user": admin_res.user, "session": None})()
+                except Exception as admin_err:
+                    admin_err_str = str(admin_err).lower()
+                    if "already registered" in admin_err_str or "already exists" in admin_err_str:
+                        raise AuthException(
+                            code="EMAIL_ALREADY_EXISTS",
+                            message="An account with this email already exists",
+                            status_code=409,
+                        )
+                    logger.debug(f"admin.create_user skipped: {admin_err}")
+
+            if not auth_response:
+                auth_response = client.auth.sign_up({
+                    "email": request.official_email,
+                    "password": request.password,
+                    "options": {
+                        "data": {
+                            "company_name": request.company_name,
+                            "full_name": request.company_name,
+                            "role": "company",
+                        }
+                    },
+                })
 
             user = auth_response.user
             if not user or (hasattr(user, "identities") and user.identities == []):
@@ -243,6 +300,12 @@ class AuthService:
                     code="WEAK_PASSWORD",
                     message="Password does not meet security criteria",
                     status_code=400,
+                )
+            if "rate limit" in err_str or "too many requests" in err_str or "over_email_send_rate_limit" in err_str:
+                raise AuthException(
+                    code="RATE_LIMIT_EXCEEDED",
+                    message="Sign-up email rate limit reached. Please disable 'Confirm email' in Supabase Authentication settings or try again later.",
+                    status_code=429,
                 )
             logger.error(f"Supabase auth error during company registration: {e}")
             raise AuthException(

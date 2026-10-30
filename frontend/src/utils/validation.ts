@@ -61,6 +61,15 @@ export function validateSignupPassword(value: string): string | undefined {
   if (value.length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`;
   }
+  if (!/[A-Z]/.test(value)) {
+    return 'Password must contain at least one uppercase letter.';
+  }
+  if (!/[a-z]/.test(value)) {
+    return 'Password must contain at least one lowercase letter.';
+  }
+  if (!/\d/.test(value)) {
+    return 'Password must contain at least one number.';
+  }
   return undefined;
 }
 
