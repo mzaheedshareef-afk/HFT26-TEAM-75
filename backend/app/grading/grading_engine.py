@@ -16,9 +16,28 @@ from backend.app.execution.execution_manager import ExecutionManager, TestCaseRe
 from backend.app.execution.security import ExecutionSecurityValidator
 from backend.app.grading.ai_efficiency import AIEfficiencyEvaluator
 from backend.app.grading.score_calculator import ScoreCalculator
-from backend.app.services.assessment_service import _assessment_questions_store
+from backend.app.services.assessment_service import (
+    _assessment_memory_store,
+    _assessment_questions_store,
+)
 
 logger = logging.getLogger(__name__)
+
+STATUS_TO_VERDICT = {
+    "accepted": "AC",
+    "wrong_answer": "WA",
+    "time_limit_exceeded": "TLE",
+    "memory_limit_exceeded": "MLE",
+    "compilation_error": "CE",
+    "runtime_error": "RTE",
+    "security_violation": "SEC",
+    "ACCEPTED": "AC",
+    "WRONG_ANSWER": "WA",
+    "TIME_LIMIT_EXCEEDED": "TLE",
+    "MEMORY_LIMIT_EXCEEDED": "MLE",
+    "COMPILATION_ERROR": "CE",
+    "RUNTIME_ERROR": "RTE",
+}
 
 # In-memory stores for resilient, lightning-fast testing and fallback
 _submissions_memory_store: Dict[str, Dict[str, Any]] = {}  # submission_id -> submission dict
@@ -108,15 +127,55 @@ class GradingEngine:
 
         candidate_results = [r.to_candidate_dict(is_hidden=False) for r in results]
         passed_count = sum(1 for r in results if r.passed)
+        failed_count = len(results) - passed_count
+        total_time_ms = round(sum(r.execution_time_ms for r in results), 2)
+        max_memory_mb = round(max((r.memory_used_mb for r in results), default=0.0), 2)
+
+        # Detect overall status & verdict
+        if any(r.status == "COMPILATION_ERROR" for r in results):
+            overall_verdict = "CE"
+            overall_status = "compilation_error"
+        elif any(r.status == "TIME_LIMIT_EXCEEDED" for r in results):
+            overall_verdict = "TLE"
+            overall_status = "time_limit_exceeded"
+        elif any(r.status == "MEMORY_LIMIT_EXCEEDED" for r in results):
+            overall_verdict = "MLE"
+            overall_status = "memory_limit_exceeded"
+        elif any(r.status == "RUNTIME_ERROR" for r in results):
+            overall_verdict = "RTE"
+            overall_status = "runtime_error"
+        elif passed_count == len(results) and len(results) > 0:
+            overall_verdict = "AC"
+            overall_status = "accepted"
+        else:
+            overall_verdict = "WA"
+            overall_status = "wrong_answer"
+
+        compile_err = next((r.error_message for r in results if r.status == "COMPILATION_ERROR"), None)
+        stdout_top = "\n".join(r.actual_output for r in results if r.actual_output).strip() or None
+        stderr_top = "\n".join(r.error_message for r in results if r.error_message).strip() or None
 
         return {
             "success": True,
             "language": canonical_lang,
             "question_id": question_id,
+            "overall_verdict": overall_verdict,
+            "status": overall_status,
             "total_test_cases": len(results),
+            "total_count": len(results),
             "passed_test_cases": passed_count,
-            "failed_test_cases": len(results) - passed_count,
+            "passed_count": passed_count,
+            "failed_test_cases": failed_count,
+            "failed_count": failed_count,
+            "total_time_ms": total_time_ms,
+            "memory_used_mb": max_memory_mb,
+            "stdout": stdout_top,
+            "stderr": stderr_top,
+            "compile_error": compile_err,
+            "compilation_error": compile_err,
+            "timed_out": overall_verdict == "TLE",
             "test_results": candidate_results,
+            "results": candidate_results,
         }
 
     @classmethod
@@ -128,6 +187,8 @@ class GradingEngine:
         assessment_id: str,
         user_id: str,
         client: Client,
+        elapsed_seconds: Optional[int] = None,
+        hints_used: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Evaluates submission against BOTH public and hidden test cases.
@@ -165,7 +226,6 @@ class GradingEngine:
         is_compilation_error = any(r.status == "COMPILATION_ERROR" for r in public_results)
 
         if is_compilation_error:
-            # Fast fail hidden tests if public tests had compilation error
             for tc in hidden_cases:
                 hidden_results.append(TestCaseResult(
                     test_case_id=tc.get("test_case_id", "hid_tc"),
@@ -187,7 +247,6 @@ class GradingEngine:
             )
 
         # 3. Deterministic score calculation
-        # If there are hidden test cases, grade primary score based on weighted hidden tests (or combined)
         combined_tests = hidden_cases if hidden_cases else public_cases
         combined_results = hidden_results if hidden_results else public_results
 
@@ -204,20 +263,26 @@ class GradingEngine:
         ]
         score_metrics = ScoreCalculator.evaluate_test_results(eval_data)
 
-        # Determine overall submission status
+        # Determine overall submission status and verdict
         all_results = public_results + hidden_results
         if any(r.status == "COMPILATION_ERROR" for r in all_results):
             overall_status = "compilation_error"
+            overall_verdict = "CE"
         elif any(r.status == "TIME_LIMIT_EXCEEDED" for r in all_results):
             overall_status = "time_limit_exceeded"
+            overall_verdict = "TLE"
         elif any(r.status == "MEMORY_LIMIT_EXCEEDED" for r in all_results):
             overall_status = "memory_limit_exceeded"
+            overall_verdict = "MLE"
         elif any(r.status == "RUNTIME_ERROR" for r in all_results):
             overall_status = "runtime_error"
-        elif all(r.passed for r in all_results):
+            overall_verdict = "RTE"
+        elif all(r.passed for r in all_results) and len(all_results) > 0:
             overall_status = "accepted"
+            overall_verdict = "AC"
         else:
             overall_status = "wrong_answer"
+            overall_verdict = "WA"
 
         # AI Efficiency analysis (does NOT affect deterministic score)
         efficiency_report = AIEfficiencyEvaluator.evaluate_efficiency(
@@ -226,7 +291,6 @@ class GradingEngine:
             problem_title=question.get("title", "Coding Problem"),
         )
 
-        # Total counts across public + hidden
         total_tests_count = len(all_results)
         passed_tests_count = sum(1 for r in all_results if r.passed)
         failed_tests_count = total_tests_count - passed_tests_count
@@ -245,10 +309,15 @@ class GradingEngine:
             "user_id": user_id,
             "assessment_id": assessment_id,
             "question_id": question_id,
+            "question_title": question.get("title", "Coding Question"),
             "language": canonical_lang,
             "source_code": source_code,
             "status": overall_status,
+            "verdict": overall_verdict,
+            "overall_verdict": overall_verdict,
             "score": score_metrics["score"],
+            "deterministic_score": score_metrics["score"],
+            "overall_score": score_metrics["score"],
             "total_tests": total_tests_count,
             "passed_tests": passed_tests_count,
             "failed_tests": failed_tests_count,
@@ -258,6 +327,7 @@ class GradingEngine:
             "hidden_test_results": candidate_hidden_results,
             "efficiency": efficiency_report,
             "created_at": now_iso,
+            "submitted_at": now_iso,
         }
 
         # 4. Save to in-memory store
@@ -294,21 +364,67 @@ class GradingEngine:
             user_id=user_id,
         )
 
+        public_verdict = (
+            "AC" if all(r.passed for r in public_results) and len(public_results) > 0
+            else "WA" if any(r.status == "WRONG_ANSWER" for r in public_results)
+            else "CE" if any(r.status == "COMPILATION_ERROR" for r in public_results)
+            else "TLE" if any(r.status == "TIME_LIMIT_EXCEEDED" for r in public_results)
+            else "RTE"
+        )
+
+        run_results_dict = {
+            "success": True,
+            "question_id": question_id,
+            "overall_verdict": public_verdict,
+            "passed_count": sum(1 for r in public_results if r.passed),
+            "total_count": len(public_results),
+            "results": candidate_public_results,
+        }
+
+        summary_dict = {
+            "submission_id": submission_id,
+            "assessment_id": assessment_id,
+            "question_id": question_id,
+            "question_title": question.get("title", "Coding Question"),
+            "language": canonical_lang,
+            "deterministic_score": score_metrics["score"],
+            "overall_score": score_metrics["score"],
+            "score": score_metrics["score"],
+            "passed_tests": passed_tests_count,
+            "failed_tests": failed_tests_count,
+            "total_tests": total_tests_count,
+            "execution_time_ms": round(total_exec_time, 2),
+            "memory_used_mb": score_metrics["max_memory_mb"],
+            "overall_verdict": overall_verdict,
+            "verdict": overall_verdict,
+            "submitted_at": now_iso,
+            "efficiency": efficiency_report,
+        }
+
         return {
             "success": True,
             "submission_id": submission_id,
             "assessment_id": assessment_id,
             "question_id": question_id,
             "status": overall_status,
+            "verdict": overall_verdict,
+            "overall_verdict": overall_verdict,
             "score": score_metrics["score"],
+            "deterministic_score": score_metrics["score"],
+            "overall_score": score_metrics["score"],
             "is_accepted": overall_status == "accepted",
             "passed_tests": passed_tests_count,
             "failed_tests": failed_tests_count,
             "total_tests": total_tests_count,
+            "execution_time_ms": round(total_exec_time, 2),
+            "memory_used_mb": score_metrics["max_memory_mb"],
             "public_test_cases": candidate_public_results,
             "hidden_test_cases": candidate_hidden_results,
             "efficiency": efficiency_report,
+            "summary": summary_dict,
+            "run_results": run_results_dict,
             "created_at": now_iso,
+            "submitted_at": now_iso,
         }
 
     @classmethod
@@ -379,6 +495,46 @@ class GradingEngine:
         return result_record
 
     @classmethod
+    def get_latest_submission(
+        cls,
+        client: Client,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Retrieves candidate's most recent graded submission summary.
+        Raises 404 if no submissions exist.
+        """
+        subs = [
+            s for s in _submissions_memory_store.values()
+            if str(s.get("user_id")) == str(user_id)
+        ]
+
+        if subs:
+            latest = sorted(subs, key=lambda s: s.get("created_at", ""), reverse=True)[0]
+            summary = dict(latest)
+            summary.setdefault("deterministic_score", latest.get("score", 0.0))
+            summary.setdefault("overall_score", latest.get("score", 0.0))
+            summary.setdefault("overall_verdict", STATUS_TO_VERDICT.get(latest.get("status", "wrong_answer"), "WA"))
+            return summary
+
+        try:
+            res = client.table("submissions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+            if res.data and len(res.data) > 0:
+                row = res.data[0]
+                row.setdefault("deterministic_score", row.get("score", 0.0))
+                row.setdefault("overall_score", row.get("score", 0.0))
+                row.setdefault("overall_verdict", STATUS_TO_VERDICT.get(row.get("status", "wrong_answer"), "WA"))
+                return row
+        except Exception:
+            pass
+
+        raise AuthException(
+            code="NO_SUBMISSIONS",
+            message="No submissions found for candidate.",
+            status_code=404,
+        )
+
+    @classmethod
     def get_submission_by_id(
         cls,
         client: Client,
@@ -427,23 +583,106 @@ class GradingEngine:
         requesting_user: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Retrieves aggregated assessment results, question breakdown, and scores.
+        Retrieves comprehensive aggregated assessment results, question breakdown, and scores.
         Enforces candidate ownership isolation.
         """
         req_user_id = str(requesting_user.get("id"))
         req_role = str(requesting_user.get("role", "student"))
 
-        result = _assessment_results_memory_store.get(assessment_id)
-        if not result:
-            # Recompute or query Supabase
-            result = cls._update_assessment_results(client, assessment_id, req_user_id)
+        assessment_record = _assessment_memory_store.get(assessment_id)
+        if not assessment_record:
+            try:
+                res = client.table("assessments").select("*").eq("id", assessment_id).execute()
+                if res.data and len(res.data) > 0:
+                    assessment_record = res.data[0]
+            except Exception:
+                pass
 
-        owner_id = str(result.get("user_id"))
-        if req_role != "company" and owner_id != req_user_id:
-            raise AuthException(
-                code="UNAUTHORIZED_ACCESS",
-                message="Access forbidden: You cannot view another student's assessment results.",
-                status_code=403,
-            )
+        if assessment_record:
+            owner_id = str(assessment_record.get("user_id"))
+            if req_role != "company" and owner_id != req_user_id:
+                raise AuthException(
+                    code="UNAUTHORIZED_ACCESS",
+                    message="Access forbidden: You cannot view another student's assessment results.",
+                    status_code=403,
+                )
 
-        return result
+        result = cls._update_assessment_results(client, assessment_id, req_user_id)
+
+        # Build detailed question performance list
+        questions = _assessment_questions_store.get(assessment_id, [])
+        all_subs = [
+            s for s in _submissions_memory_store.values()
+            if str(s.get("assessment_id")) == str(assessment_id)
+        ]
+
+        question_perf: List[Dict[str, Any]] = []
+        for q in questions:
+            qid = str(q.get("id") or q.get("question_id"))
+            q_subs = [s for s in all_subs if str(s.get("question_id")) == qid]
+            best_sub = sorted(q_subs, key=lambda s: float(s.get("score", 0.0)), reverse=True)[0] if q_subs else None
+
+            if best_sub:
+                status_val = best_sub.get("status", "wrong_answer")
+                verdict_val = STATUS_TO_VERDICT.get(status_val, "WA")
+                score_val = float(best_sub.get("score", 0.0))
+                passed_t = int(best_sub.get("passed_tests", 0))
+                failed_t = int(best_sub.get("failed_tests", 0))
+                total_t = int(best_sub.get("total_tests", 0))
+                exec_ms = float(best_sub.get("execution_time_ms", 0.0))
+                mem_mb = float(best_sub.get("memory_used_mb", 0.0))
+                complexity = best_sub.get("efficiency", {}).get("detected_time_complexity", "O(N)")
+            else:
+                verdict_val = "PENDING"
+                score_val = 0.0
+                passed_t = 0
+                failed_t = 0
+                sample_count = len(q.get("sample_test_cases", []) or q.get("public_test_cases", []))
+                hidden_count = len(q.get("hidden_test_cases", []))
+                total_t = sample_count + hidden_count
+                exec_ms = 0.0
+                mem_mb = 0.0
+                complexity = "N/A"
+
+            question_perf.append({
+                "question_id": qid,
+                "title": q.get("title", f"Question {len(question_perf) + 1}"),
+                "difficulty": (q.get("difficulty") or "Medium").capitalize(),
+                "verdict": verdict_val,
+                "score": score_val,
+                "passed_tests": passed_t,
+                "failed_tests": failed_t,
+                "total_tests": total_t,
+                "time_taken_seconds": 0,
+                "execution_time_ms": exec_ms,
+                "memory_used_mb": mem_mb,
+                "hints_used": 0,
+                "detected_time_complexity": complexity,
+            })
+
+        total_passed = sum(p["passed_tests"] for p in question_perf)
+        total_failed = sum(p["failed_tests"] for p in question_perf)
+        total_tests = sum(p["total_tests"] for p in question_perf)
+        total_score = float(result.get("total_score", 0.0))
+        title = assessment_record.get("title", "Personalized Technical Assessment") if assessment_record else "Personalized Technical Assessment"
+        status_str = assessment_record.get("status", "completed") if assessment_record else "completed"
+
+        enriched = {
+            "assessment_id": assessment_id,
+            "assessment_title": title,
+            "completion_status": status_str,
+            "status": status_str,
+            "final_score": total_score,
+            "deterministic_score": total_score,
+            "total_score": total_score,
+            "correct_test_cases": total_passed,
+            "failed_test_cases": total_failed,
+            "total_test_cases": total_tests,
+            "time_taken_seconds": assessment_record.get("duration_seconds", 3600) if assessment_record else 3600,
+            "total_hints_used": 0,
+            "completed_at": assessment_record.get("completed_at") if assessment_record else None,
+            "question_performance": question_perf,
+            "question_scores": result.get("question_scores", {}),
+            "updated_at": result.get("updated_at"),
+        }
+        return enriched

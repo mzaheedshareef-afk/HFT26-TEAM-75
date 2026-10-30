@@ -1,8 +1,9 @@
 """
 API Routes: Code Execution & Submissions
 Provides endpoints:
-- POST /api/code/run
-- POST /api/code/submit
+- POST /api/code/run (and alias POST /api/assessment/run)
+- POST /api/code/submit (and alias POST /api/submissions)
+- GET /api/submissions/latest
 - GET /api/submissions/{submission_id}
 - GET /api/assessment/{assessment_id}/results
 """
@@ -71,7 +72,7 @@ def require_authenticated_user(
 
 
 # -------------------------------------------------------------------------
-# Code Execution & Submission Endpoints
+# Core Code Execution & Submission Endpoints
 # -------------------------------------------------------------------------
 
 @code_router.post(
@@ -89,7 +90,6 @@ def run_code(
     Executes student code strictly against public sample test cases (or optional custom input).
     Never accesses or evaluates against hidden test cases.
     """
-    # Verify assessment ownership if assessment_id is provided
     if payload.assessment_id:
         AssessmentService.get_assessment_by_id(
             client=client,
@@ -97,8 +97,10 @@ def run_code(
             requesting_user=current_user,
         )
 
+    code_to_run = payload.source_code or payload.code or ""
+
     results = GradingEngine.run_public_tests(
-        source_code=payload.source_code,
+        source_code=code_to_run,
         language=payload.language,
         question_id=payload.question_id,
         client=client,
@@ -129,21 +131,23 @@ def submit_code(
     Calculates deterministic score, updates assessment scores, and returns sanitized results.
     Hidden test inputs and expected outputs are never returned to candidate.
     """
-    # 1. Enforce assessment ownership: candidate must own the assessment
     AssessmentService.get_assessment_by_id(
         client=client,
         assessment_id=payload.assessment_id,
         requesting_user=current_user,
     )
 
-    # 2. Evaluate and grade
+    code_to_submit = payload.source_code or payload.code or ""
+
     result = GradingEngine.submit_and_grade(
-        source_code=payload.source_code,
+        source_code=code_to_submit,
         language=payload.language,
         question_id=payload.question_id,
         assessment_id=payload.assessment_id,
         user_id=current_user["id"],
         client=client,
+        elapsed_seconds=payload.elapsed_seconds,
+        hints_used=payload.hints_used,
     )
 
     return JSONResponse(
@@ -153,8 +157,43 @@ def submit_code(
 
 
 # -------------------------------------------------------------------------
-# Submission Query Endpoints
+# Submission Query & Alias Endpoints
 # -------------------------------------------------------------------------
+
+@submissions_router.post(
+    "",
+    status_code=status.HTTP_200_OK,
+    summary="Submit solution (alias for /api/code/submit)",
+    response_model=CodeSubmitResponse,
+)
+def submit_code_alias(
+    payload: CodeSubmitRequest,
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Alias for POST /api/code/submit allowing direct POST to /api/submissions."""
+    return submit_code(payload, current_user, client)
+
+
+@submissions_router.get(
+    "/latest",
+    status_code=status.HTTP_200_OK,
+    summary="Get candidate's latest submission",
+)
+def get_latest_candidate_submission(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Returns candidate's latest graded submission summary."""
+    latest = GradingEngine.get_latest_submission(client, current_user["id"])
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "summary": latest,
+        },
+    )
+
 
 @submissions_router.get(
     "/{submission_id}",
@@ -182,6 +221,7 @@ def get_submission_by_id(
         content={
             "success": True,
             "submission": submission,
+            "summary": submission,
         },
     )
 
@@ -201,7 +241,6 @@ def get_assessment_results(
     Retrieves rolled-up assessment results and per-question score breakdown.
     Enforces student ownership isolation.
     """
-    # Verify assessment exists and user has permission
     AssessmentService.get_assessment_by_id(
         client=client,
         assessment_id=assessment_id,
@@ -219,5 +258,6 @@ def get_assessment_results(
         content={
             "success": True,
             "results": results,
+            "result": results,
         },
     )

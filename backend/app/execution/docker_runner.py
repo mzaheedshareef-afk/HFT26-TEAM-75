@@ -7,6 +7,7 @@ Enforces non-root user, network disabled, CPU/memory limits, read-only FS, and s
 from dataclasses import dataclass
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -36,6 +37,17 @@ SOURCE_FILENAMES = {
     "cpp": "solution.cpp",
     "java": "Solution.java",
 }
+
+def detect_java_class_name(source_code: str) -> str:
+    """Extracts public class name or class name with main method from Java code."""
+    m = re.search(r'public\s+class\s+([A-Za-z0-9_]+)', source_code)
+    if m:
+        return m.group(1)
+    m = re.search(r'class\s+([A-Za-z0-9_]+)', source_code)
+    if m:
+        return m.group(1)
+    return "Solution"
+
 
 # Override flag for testing Docker unavailability
 _docker_available_override: Optional[bool] = None
@@ -134,6 +146,9 @@ class DockerRunner:
         container_id = f"hft26_box_{uuid.uuid4().hex[:12]}"
         image = DOCKER_IMAGES.get(language, DOCKER_IMAGES["python"])
         source_name = SOURCE_FILENAMES.get(language, "solution.txt")
+        if language == "java":
+            java_class = detect_java_class_name(source_code)
+            source_name = f"{java_class}.java"
 
         # Create temporary isolated directory for source file
         with tempfile.TemporaryDirectory(prefix="hft_sandbox_") as temp_dir:
@@ -400,7 +415,7 @@ class DockerRunner:
             "-w", "/tmp",
             "-i",
             image,
-            "java", f"-Xmx{memory_limit_mb}m", "-Xss16m", "-cp", "/sandbox", "Solution",
+            "java", f"-Xmx{memory_limit_mb}m", "-Xss16m", "-cp", "/sandbox", os.path.splitext(source_name)[0],
         ]
 
         return cls._run_docker_subprocess(run_cmd, container_id, stdin_data, time_limit_seconds)

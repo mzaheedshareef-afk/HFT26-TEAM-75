@@ -8,15 +8,25 @@ from dataclasses import asdict, dataclass
 import logging
 from typing import Any, Dict, List, Optional
 
+from backend.app.execution.comparator import compare_outputs
 from backend.app.execution.docker_runner import DockerRunner, RawExecutionResult
 from backend.app.execution.security import (
     DEFAULT_MEMORY_LIMIT_MB,
     DEFAULT_TIMEOUT_SECONDS,
     ExecutionSecurityValidator,
 )
-from backend.app.execution.comparator import compare_outputs
 
 logger = logging.getLogger(__name__)
+
+VERDICT_MAP = {
+    "ACCEPTED": "AC",
+    "WRONG_ANSWER": "WA",
+    "TIME_LIMIT_EXCEEDED": "TLE",
+    "MEMORY_LIMIT_EXCEEDED": "MLE",
+    "COMPILATION_ERROR": "CE",
+    "RUNTIME_ERROR": "RTE",
+    "OUTPUT_LIMIT_EXCEEDED": "RTE",
+}
 
 
 @dataclass
@@ -38,25 +48,36 @@ class TestCaseResult:
     def to_candidate_dict(self, is_hidden: bool = False) -> Dict[str, Any]:
         """
         Formats test case result for candidate frontend.
-        Hidden test cases NEVER expose input, expected_output, or actual_output.
+        Hidden test cases NEVER expose input, expected_output, actual_output, stdout, or stderr.
         """
+        verdict = VERDICT_MAP.get(self.status, "AC" if self.passed else "WA")
+        timed_out = (self.status == "TIME_LIMIT_EXCEEDED")
+
         if is_hidden:
             return {
                 "test_case_id": self.test_case_id,
                 "status": self.status,
+                "verdict": verdict,
                 "passed": self.passed,
+                "timed_out": timed_out,
                 "execution_time_ms": round(self.execution_time_ms, 2),
+                "memory_used_mb": round(self.memory_used_mb, 2),
                 "is_hidden": True,
             }
         return {
             "test_case_id": self.test_case_id,
             "status": self.status,
+            "verdict": verdict,
             "passed": self.passed,
             "input": self.input,
             "expected_output": self.expected_output,
             "actual_output": self.actual_output,
+            "stdout": self.actual_output,
+            "stderr": self.error_message,
             "error_message": self.error_message,
+            "timed_out": timed_out,
             "execution_time_ms": round(self.execution_time_ms, 2),
+            "memory_used_mb": round(self.memory_used_mb, 2),
             "is_hidden": False,
         }
 
@@ -111,6 +132,7 @@ class ExecutionManager:
                     actual_output="",
                     error_message=err_msg,
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
                 # If compilation failed once, mark remaining tests as compilation error as well
@@ -124,6 +146,7 @@ class ExecutionManager:
                         actual_output="",
                         error_message="Skipped due to compilation error.",
                         execution_time_ms=0.0,
+                        memory_used_mb=0.0,
                         weight=float(remaining_tc.get("weight", 1.0)),
                     ))
                 break
@@ -139,6 +162,7 @@ class ExecutionManager:
                     actual_output="",
                     error_message=f"Time limit of {time_limit_seconds}s exceeded.",
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
             elif raw_res.status == "MEMORY_LIMIT_EXCEEDED":
@@ -151,6 +175,7 @@ class ExecutionManager:
                     actual_output="",
                     error_message=f"Memory limit of {memory_limit_mb}MB exceeded.",
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
             elif raw_res.status == "RUNTIME_ERROR":
@@ -163,6 +188,7 @@ class ExecutionManager:
                     actual_output=raw_res.stdout,
                     error_message=raw_res.error_message or raw_res.stderr,
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
             elif raw_res.status == "OUTPUT_LIMIT_EXCEEDED":
@@ -175,6 +201,7 @@ class ExecutionManager:
                     actual_output=raw_res.stdout,
                     error_message="Output limit exceeded (1MB).",
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
             else:
@@ -189,6 +216,7 @@ class ExecutionManager:
                     expected_output=tc_expected,
                     actual_output=raw_res.stdout.strip(),
                     execution_time_ms=raw_res.execution_time_ms,
+                    memory_used_mb=raw_res.memory_used_mb,
                     weight=tc_weight,
                 ))
 
