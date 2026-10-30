@@ -354,8 +354,9 @@ python -m pytest backend/tests/ -v
 # Run full-stack and contract integration test suites
 python -m pytest tests/ -v
 ```
-**Total:** **161 Passed / 0 Failed**
+**Total:** **167 Passed / 0 Failed**
 - `backend/tests/test_recruiter.py` (27 passed)
+- `backend/tests/test_recruiter_integration.py` (6 passed)
 - `backend/tests/test_ai_analytics_profiles.py` (23 passed)
 - `backend/tests/test_auth.py` (22 passed)
 - `backend/tests/test_grading.py` (27 passed)
@@ -367,7 +368,7 @@ From `frontend/`:
 cd frontend
 npm test -- --run
 ```
-**Total:** **37 Passed / 0 Failed** (`portfolio.test.tsx`, `assessment.test.tsx`, `aiAnalyticsProfiles.test.tsx`, `auth.test.tsx`).
+**Total:** **45 Passed / 0 Failed** across 5 test suites (`portfolio.test.tsx`, `assessment.test.tsx`, `aiAnalyticsProfiles.test.tsx`, `auth.test.tsx`, `recruiter.test.tsx`).
 
 ---
 
