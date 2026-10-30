@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  BarChart3,
   Building2,
   Code2,
   FolderGit2,
@@ -33,6 +34,11 @@ const studentNavItems: NavItem[] = [
     to: '/student/assessment/instructions',
     icon: Code2,
   },
+  {
+    label: 'Results',
+    to: '/student/assessment/results',
+    icon: BarChart3,
+  },
 ];
 
 const companyNavItems: NavItem[] = [
@@ -56,8 +62,14 @@ export function DashboardShell({
   };
 
   const isNavItemActive = (to: string) => {
+    if (to === '/student/assessment/results') {
+      return location.pathname.endsWith('/results');
+    }
     if (to === '/student/assessment/instructions') {
-      return location.pathname.startsWith('/student/assessment');
+      return (
+        location.pathname.startsWith('/student/assessment') &&
+        !location.pathname.endsWith('/results')
+      );
     }
     return location.pathname === to;
   };
@@ -172,4 +184,3 @@ export function DashboardShell({
     </div>
   );
 }
-
