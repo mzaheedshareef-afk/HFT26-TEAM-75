@@ -2,7 +2,7 @@
 
 > **Project**: Portfolio-Driven Adaptive Coding & Technical Assessment Platform (`HFT26-TEAM-75`)  
 > **Authors**: Vasil (Testing & Integration Lead), Srinath (Backend), Zaheed (Frontend)  
-> **Target**: Local Development, Secure Docker Execution, Grading & Integration  
+> **Target**: Local Development, Secure Docker Execution, AI Hints, Analytics & Public Profiles  
 
 ---
 
@@ -88,7 +88,8 @@ Every sandbox container is instantiated with strict defense-in-depth isolation f
 In the Supabase **SQL Editor**, execute in sequential order:
 1. `database/schema.sql`: Core `profiles` table, indexes, updated_at triggers, and RLS policies.
 2. `database/migrations/002_portfolio_and_assessment.sql`: `portfolios`, `assessments`, and `assessment_questions` tables.
-3. `database/migrations/003_submissions_and_grading.sql`: `submissions` and `assessment_results` tables with strict RLS policies ensuring students can only access their own submissions and results.
+3. `database/migrations/003_submissions_and_grading.sql`: `submissions` and `assessment_results` tables with strict RLS policies.
+4. `database/migrations/004_ai_hints_analytics_profiles.sql`: `ai_hint_interactions`, `assessment_ai_metrics`, and `student_public_profiles` tables with ownership and public-view RLS policies.
 
 ### 3.4 Retrieve API Credentials
 Navigate to **Project Settings > API**:
@@ -125,7 +126,7 @@ DEBUG=true
 # Allowed CORS Origins (comma-separated)
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173,http://localhost:8000
 
-# Featherless AI Configuration (Personalized Assessment Hints & Calibrations)
+# Featherless AI Configuration (Personalized Assessment, Progressive Hints & Calibrations)
 FEATHERLESS_API_KEY=your-featherless-api-key
 FEATHERLESS_BASE_URL=https://api.featherless.ai/v1
 FEATHERLESS_MODEL=meta-llama/Meta-Llama-3.1-70B-Instruct
@@ -187,145 +188,138 @@ Frontend URL:
 
 ---
 
-## 6. Code Execution & Grading Endpoints
+## 6. AI Progressive Hints & Interaction Tracking
 
-All execution and grading endpoints require a valid student JWT `Bearer` token in the `Authorization` header.
+The Progressive Hint Engine uses Featherless AI with a server-side leak prevention guardrail.
 
-### 6.1 `POST /api/code/run`
-Executes candidate code strictly against **public sample test cases** (or custom input). Never accesses or runs hidden test cases.
+### 6.1 Progressive Hint Tiers
 
-**Request Body:**
-```json
-{
-  "assessment_id": "assess-75",
-  "question_id": "q-101",
-  "language": "python",
-  "source_code": "def solve(nums, target):\n    return []\n"
-}
-```
+| Tier | Focus | Content Delivered |
+| :--- | :--- | :--- |
+| **Level 1** | Conceptual Intuition | High-level problem framing and invariant observations without implementation details. |
+| **Level 2** | Strategy & Data Structures | Recommended data structures (hash maps, deques, sliding windows) and decomposition. |
+| **Level 3** | Edge Cases & Optimization | Boundary conditions (empty inputs, duplicates) and Big-O complexity trade-offs. |
 
-**Response (200 OK):**
-```json
-{
-  "success": true,
-  "language": "python",
-  "question_id": "q-101",
-  "overall_verdict": "AC",
-  "total_test_cases": 2,
-  "passed_test_cases": 2,
-  "failed_test_cases": 0,
-  "total_time_ms": 32.5,
-  "memory_used_mb": 18.4,
-  "results": [
-    {
-      "test_case_id": "tc-public-1",
-      "verdict": "AC",
-      "passed": true,
-      "input": "2 7 11 15\n9",
-      "expected_output": "[0, 1]",
-      "actual_output": "[0, 1]",
-      "execution_time_ms": 16.2,
-      "memory_used_mb": 18.4
-    }
-  ]
-}
-```
+### 6.2 Pedagogical Guardrails
+- **Zero Solution Spoilage**: Code blocks $\ge 3$ lines or function/class declarations (`def `, `class `, `int main`, etc.) are automatically redacted by the server guardrail before delivery.
+- **Strict Rate Limits**: Candidates are restricted to a maximum of **3 hints per question** (`MAX_HINTS_PER_QUESTION = 3`). Exceeding requests returns `429 EXCESSIVE_HINT_REQUESTS`.
+- **Fault-Tolerant Fallback**: If Featherless AI times out or is unreachable, the engine immediately serves curriculum-aligned deterministic hints without failing the request.
+- **Isolation**: Students cannot view or request hints for assessments belonging to other candidates (`403 Forbidden`).
 
-### 6.2 `POST /api/code/submit`
-Submits final solution for deterministic grading against **both public and hidden test cases**. Hidden test case inputs, expected outputs, and raw stdout are **strictly redacted** on the server before the response is returned.
-
-**Request Body:**
-```json
-{
-  "assessment_id": "assess-75",
-  "question_id": "q-101",
-  "language": "cpp",
-  "source_code": "#include <iostream>\nint main() { return 0; }",
-  "elapsed_seconds": 180,
-  "hints_used": 0
-}
-```
-
-**Response (200 OK):**
-```json
-{
-  "success": true,
-  "submission_id": "sub_4f8a2b...",
-  "assessment_id": "assess-75",
-  "question_id": "q-101",
-  "status": "graded",
-  "verdict": "AC",
-  "score": 100.0,
-  "deterministic_score": 100.0,
-  "is_accepted": true,
-  "passed_tests": 5,
-  "failed_tests": 0,
-  "total_tests": 5,
-  "execution_time_ms": 48.0,
-  "memory_used_mb": 22.1,
-  "public_test_cases": [...],
-  "hidden_test_cases": [
-    {
-      "test_case_id": "tc-hidden-1",
-      "verdict": "AC",
-      "passed": true,
-      "is_hidden": true
-    }
-  ],
-  "created_at": "2026-10-31T03:00:00Z"
-}
-```
-
-### 6.3 `GET /api/submissions/{submission_id}`
-Retrieves submission record by ID. Access is strictly constrained by RLS to the student who submitted the code.
-
-### 6.4 `GET /api/assessment/{assessment_id}/results`
-Retrieves aggregated scores, final completion status, and question-by-question performance breakdowns for the assessment.
+### 6.3 Endpoints
+- `POST /api/assessment/{assessment_id}/questions/{question_id}/hint`: Request next hint.
+- `GET /api/assessment/{assessment_id}/questions/{question_id}/hints`: View hint history for question.
+- `GET /api/assessment/{assessment_id}/hints/stats`: View session hint usage statistics.
+- `POST /api/assistant/hint`: Direct alias for frontend `assistantService.requestHint`.
 
 ---
 
-## 7. Automated Testing Suite
+## 7. AI Efficiency Scoring Engine (v1.0)
 
-### 7.1 Backend Unit & Integration Tests (Pytest)
+Calculated via transparent, deterministic backend logic (zero LLM reliance for score assignment).
+
+### 7.1 Formula
+
+$$\text{Final Score} = 0.80 \times \text{Coding Score} + 0.20 \times \text{AI Efficiency Score}$$
+
+$$\text{AI Efficiency Score} = \text{clamp}\left(100.0 - \sum \text{Hint Deductions} + \text{Utilization Bonus} + \text{Independent Bonus} - \text{CE Penalty},\, 0,\, 100\right)$$
+
+### 7.2 Difficulty Normalization
+
+| Question Difficulty | Multiplier | Rationale |
+| :--- | :--- | :--- |
+| **Easy** | $1.2\times$ | Hints on fundamental concepts carry slightly higher deductions. |
+| **Medium** | $1.0\times$ | Standard baseline progression. |
+| **Hard** | $0.7\times$ | Proactive inquiry on complex algorithmic problems is expected and lightly penalized. |
+
+- **Effective Utilization Bonus**: Students who request a hint and then successfully pass the question (`AC`) receive an offset ($+4.0 \times \text{diff}$), rewarding productive AI synthesis over blind trial-and-error.
+- **Formula Versioning**: Every assessment result stores `formula_version: "v1.0"` to guarantee historical score consistency across algorithm revisions.
+
+---
+
+## 8. Student Analytics & Performance Trends
+
+### 8.1 Endpoints
+- `GET /api/analytics/me`: Aggregated dashboard metrics:
+  - Total and completed assessments.
+  - Overall average and highest scores.
+  - Total correct and failed test cases.
+  - Topic-wise breakdown (success rate, average score).
+  - Difficulty-wise breakdown (easy, medium, hard).
+  - Improvement delta (trend between earlier and later assessments).
+  - Performance consistency score ($0-100$ based on score variance).
+  - Chronological trend points for chart rendering.
+- `GET /api/analytics/me/history`: Assessment session history cards.
+- `GET /api/analytics/me/results/{assessment_id}`: Comprehensive results report for a specific assessment.
+
+### 8.2 Security Guarantees
+- Strict RLS and backend ownership verification ensure candidates only access their own analytics.
+- Empty candidate history returns clean zeroed metrics without application errors.
+
+---
+
+## 9. Public Student Profiles & Privacy Boundaries
+
+Candidates can generate a public shareable portfolio profile to showcase verified technical accomplishments to recruiters.
+
+### 9.1 Endpoints
+- `GET /api/profile/me`: View own profile details and active `share_url`.
+- `PATCH /api/profile/me`: Update profile fields (`public_name`, `headline`, `bio`, `skills`, `technologies`, `projects`).
+- `PATCH /api/profile/me/visibility`: Toggle visibility (`"public"` or `"private"`).
+- `POST /api/profile/me/revoke`: Immediately revokes the current share link by generating a brand new secret `share_id`.
+- `GET /api/public/profile/{share_id}`: Zero-auth public profile view.
+
+### 9.2 Privacy & Security Model
+When a profile is accessed publicly via `GET /api/public/profile/{share_id}`:
+1. **Zero Email Exposure**: Candidate email is completely withheld.
+2. **Zero Internal ID Exposure**: User UUID, assessment IDs, and database keys are never included.
+3. **Zero Code or Test Exposure**: Untrusted source code and private test assertions are strictly excluded.
+4. **Instant Link Revocation**: Revoking immediately breaks previous URLs with a `404 PROFILE_NOT_FOUND`.
+5. **Private by Default**: New profiles default to `visibility: "private"`.
+
+---
+
+## 10. Automated Testing Suite
+
+### 10.1 Backend Test Suites (Pytest)
 From the repository root:
 ```bash
-# Run all backend authentication and grading test suites
-python -m pytest backend/tests/test_auth.py backend/tests/test_grading.py -v
+# Run all backend test suites (auth, grading, AI hints, analytics, public profiles)
+python -m pytest backend/tests/ -v
 
 # Run full-stack and contract integration test suites
 python -m pytest tests/ -v
 ```
-**Total:** **111 Passed / 0 Failed** (49 backend tests + 62 integration tests).
+**Total:** **134 Passed / 0 Failed**
+- `backend/tests/test_ai_analytics_profiles.py` (23 passed)
+- `backend/tests/test_auth.py` (22 passed)
+- `backend/tests/test_grading.py` (27 passed)
+- `tests/` integration suites (62 passed)
 
-### 7.2 Frontend React & Monaco Editor Tests (Vitest)
+### 10.2 Frontend React & Monaco Editor Tests (Vitest)
 From `frontend/`:
 ```bash
 cd frontend
 npm test -- --run
 ```
-**Total:** **28 Passed / 0 Failed** across:
-- `portfolio.test.tsx` (5 passed)
-- `assessment.test.tsx` (9 passed: Monaco editor, language selector, public run, submit, CE, TLE, draft persistence)
-- `auth.test.tsx` (14 passed)
+**Total:** **28 Passed / 0 Failed** (`portfolio.test.tsx`, `assessment.test.tsx`, `auth.test.tsx`).
 
 ---
 
-## 8. Verification & Security Checklist
+## 11. Verification & Security Checklist
 
 | Scenario | Expected Result | Verified |
 | :--- | :--- | :---: |
 | **Untrusted Code Isolation** | Code executes exclusively inside ephemeral Docker sandboxes; never on FastAPI host | ✅ |
-| **Non-Root Execution** | Container runs as UID `1001:1001` (`sandboxuser`) | ✅ |
-| **Network Egress Blocked** | `--network none` rejects all outbound network connections | ✅ |
-| **Resource Limits Enforced** | Hard caps of 256 MB RAM, 0.5 CPU, 64 PIDs, and 2.0s execution timeout | ✅ |
-| **Read-Only Filesystem** | Container rootfs is read-only; `/tmp` tmpfs is 32MB noexec/nosuid | ✅ |
-| **Infinite Loop / TLE** | Infinite loops terminated at timeout returning `TLE` status safely | ✅ |
-| **Compilation Error (CE)** | Syntax/compile errors in C++/Java return `CE` with sanitized compiler diagnostics | ✅ |
-| **Runtime Error (RTE)** | Exceptions/panics return `RTE` with sanitized runtime diagnostics | ✅ |
-| **Hidden Test Confidentiality** | Hidden inputs, expected outputs, and solution traces are never exposed in frontend payloads | ✅ |
-| **Deterministic Grading** | Correctness calculated purely via deterministic token/float comparison (no LLM) | ✅ |
-| **Ownership Isolation** | Students cannot view or run submissions belonging to other students (`403 Forbidden`) | ✅ |
-| **Language Support** | Python 3.12, C++ 17, and Java 21 fully supported and normalized | ✅ |
-| **Editor Draft Persistence** | Monaco editor preserves student drafts when switching between assessment questions | ✅ |
-| **Duplicate Submit Prevention** | Submit button debounces and disables during in-flight evaluation | ✅ |
-| **Container Cleanup** | Ephemeral containers destroyed immediately on completion or failure (`--rm`, `docker rm -f`) | ✅ |
+| **Progressive AI Hints** | Level 1, 2, and 3 hints delivered progressively with conceptual framing | ✅ |
+| **Code Leakage Redaction** | Guardrail intercepts and redacts multi-line code solutions and function headers | ✅ |
+| **Hint Rate Limiting** | Max 3 hints per question enforced; excess requests return `429 EXCESSIVE_HINT_REQUESTS` | ✅ |
+| **Featherless Timeout Fallback** | AI timeout or failure automatically serves deterministic fallback hints gracefully | ✅ |
+| **Cross-Student Hint Isolation** | Students cannot view or request hints on another student's assessment (`403 Forbidden`) | ✅ |
+| **Deterministic Efficiency Score** | Calculated by deterministic backend logic with difficulty multipliers; zero LLM grading | ✅ |
+| **Formula Version Stamping** | Every result preserves `formula_version: "v1.0"` and composite weights (80% / 20%) | ✅ |
+| **Dashboard Analytics** | Aggregates assessments, test cases, topic breakdowns, delta, and consistency score | ✅ |
+| **Empty Analytics Handling** | Zero-assessment candidates receive clean zeroed metrics without server error | ✅ |
+| **Public Profile Privacy** | Zero exposure of email, user UUIDs, auth tokens, source code, or hidden tests | ✅ |
+| **Instant Link Revocation** | Revoking `share_id` immediately disables the previous link with `404 Not Found` | ✅ |
+| **Container Cleanup** | Disposable execution containers destroyed immediately on completion or failure | ✅ |
