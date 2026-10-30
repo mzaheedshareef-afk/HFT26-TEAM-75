@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = "placeholder-key"
     SUPABASE_JWT_SECRET: str = "placeholder-jwt-secret-min-32-chars-long"
 
+    # Featherless AI Configuration
+    FEATHERLESS_API_KEY: str = "placeholder-featherless-key"
+    FEATHERLESS_BASE_URL: str = "https://api.featherless.ai/v1"
+    FEATHERLESS_MODEL: str = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+
+    # Docker Sandbox Configuration
+    DOCKER_SANDBOX_IMAGE: str = "python:3.12-slim"
+    DOCKER_TIMEOUT_SECONDS: float = 2.0
+    DOCKER_MEMORY_LIMIT_MB: int = 256
+
     # CORS Settings
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:3000",
