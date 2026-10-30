@@ -23,6 +23,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      const url = error.config?.url || '';
+      // Only clear session on protected endpoints, not when attempting initial login
+      if (!url.includes('/login')) {
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('gatecode:unauthorized'));
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 interface BackendValidationItem {
   loc?: Array<string | number>;
   msg?: string;

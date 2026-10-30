@@ -333,4 +333,98 @@ describe('GateCode Frontend Authentication Module', () => {
       screen.getByRole('heading', { name: /sign in to candidate portal/i })
     ).toBeInTheDocument();
   });
+
+  it('prevents students from accessing company-only dashboard and redirects them', async () => {
+    localStorage.setItem('gatecode_access_token', 'JWT_STUDENT_TOKEN');
+    localStorage.setItem(
+      'gatecode_auth_user',
+      JSON.stringify({
+        id: 'user_101',
+        name: 'Candidate Arjun',
+        email: 'arjun@cbit.ac.in',
+        role: 'student',
+      })
+    );
+
+    renderAtRoute('/company/dashboard');
+
+    // Automatically redirected to student dashboard
+    expect(
+      await screen.findByRole('heading', { name: /welcome, candidate arjun/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/candidate workspace/i)
+    ).toBeInTheDocument();
+  });
+
+  it('prevents company accounts from accessing student-only dashboard and redirects them', async () => {
+    localStorage.setItem('gatecode_access_token', 'JWT_COMPANY_TOKEN');
+    localStorage.setItem(
+      'gatecode_auth_user',
+      JSON.stringify({
+        id: 'comp_202',
+        name: 'Tech Recruiter',
+        email: 'recruiter@techcorp.com',
+        role: 'company',
+      })
+    );
+
+    renderAtRoute('/student/dashboard');
+
+    // Automatically redirected to company dashboard
+    expect(
+      await screen.findByRole('heading', { name: /welcome, tech recruiter/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/company portal/i)
+    ).toBeInTheDocument();
+  });
+
+  it('clears session and redirects to landing page on sign out', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('gatecode_access_token', 'JWT_STUDENT_TOKEN');
+    localStorage.setItem(
+      'gatecode_auth_user',
+      JSON.stringify({
+        id: 'user_101',
+        name: 'Candidate Arjun',
+        email: 'arjun@cbit.ac.in',
+        role: 'student',
+      })
+    );
+
+    renderAtRoute('/student/dashboard');
+
+    const signOutBtn = await screen.findByRole('button', { name: /sign out/i });
+    await user.click(signOutBtn);
+
+    expect(localStorage.getItem('gatecode_access_token')).toBeNull();
+    expect(localStorage.getItem('gatecode_auth_user')).toBeNull();
+    expect(
+      await screen.findByRole('heading', {
+        name: /sign in to candidate portal/i,
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('fetches current user profile via authService.getMe() with bearer header', async () => {
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValueOnce({
+      data: {
+        success: true,
+        user: {
+          id: 'user_101',
+          name: 'Arjun Kumar',
+          email: 'arjun@cbit.ac.in',
+          role: 'student',
+        },
+      },
+    });
+
+    const { authService } = await import('../services/authService');
+    const profile = await authService.getMe();
+
+    expect(getSpy).toHaveBeenCalledWith('/api/auth/me');
+    expect(profile.name).toBe('Arjun Kumar');
+    expect(profile.role).toBe('student');
+  });
 });

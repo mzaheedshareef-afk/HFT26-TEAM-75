@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { authService } from '../services/authService';
 import type { AuthSession, AuthUser } from '../types/auth';
 
@@ -16,6 +16,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(() =>
     authService.getStoredSession()
   );
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setSession(null);
+    };
+    window.addEventListener('gatecode:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('gatecode:unauthorized', handleUnauthorized);
+    };
+  }, []);
 
   const establishSession = useCallback((nextSession: AuthSession) => {
     authService.saveSession(nextSession);
