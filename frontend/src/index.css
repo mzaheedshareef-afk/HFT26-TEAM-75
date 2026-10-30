@@ -151,6 +151,54 @@
   }
 }
 
+/* Sticky side-by-side candidate comparison matrix (modern-web-guidance: responsive-table) */
+.comparison-matrix-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(680px, 80vh);
+  container-type: inline-size;
+}
+
+.comparison-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  min-inline-size: 640px;
+}
+
+.comparison-matrix thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+}
+
+.comparison-matrix tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 2;
+  background-color: #f8fafc;
+}
+
+.comparison-matrix thead th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 4;
+  background-color: #f1f5f9;
+}
+
+/* Isolate layout/paint reflows on dense recruiter candidate & shortlist cards
+   (modern-web-guidance: interactions-in-complex-layouts) */
+.recruiter-card-contain {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 340px auto 380px;
+}
+
+@supports not (content-visibility: auto) {
+  .recruiter-card-contain {
+    contain: layout style paint;
+  }
+}
+
 /* Interest-triggered hint tooltips (modern-web-guidance: interest-triggered-tooltips) */
 [interestfor] {
   --interest-delay-start: 0.2s;
