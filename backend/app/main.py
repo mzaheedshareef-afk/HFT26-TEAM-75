@@ -13,6 +13,15 @@ from backend.app.api.routes.submissions import (
     code_router,
     submissions_router,
 )
+from backend.app.api.routes.assistant import (
+    assistant_router,
+    assessment_hint_router,
+)
+from backend.app.api.routes.analytics import router as analytics_router
+from backend.app.api.routes.public_profile import (
+    profile_router,
+    public_profile_router,
+)
 from backend.app.core.config import settings
 from backend.app.core.security import AuthException
 from backend.app.execution.security import ExecutionSecurityException
@@ -205,4 +214,34 @@ app.include_router(
     submissions_router,
     prefix="/api/submissions",
     tags=["Submissions"],
+)
+
+app.include_router(
+    assistant_router,
+    prefix="/api/assistant",
+    tags=["Guarded Assistant"],
+)
+
+app.include_router(
+    assessment_hint_router,
+    prefix="/api/assessment",
+    tags=["Assessment Hints"],
+)
+
+app.include_router(
+    analytics_router,
+    prefix="/api/analytics",
+    tags=["Analytics"],
+)
+
+app.include_router(
+    profile_router,
+    prefix="/api/profile",
+    tags=["Student Profile"],
+)
+
+app.include_router(
+    public_profile_router,
+    prefix="/api/public/profile",
+    tags=["Public Profile"],
 )
