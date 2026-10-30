@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "axios": "^1.7.9",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
@@ -34,4 +35,3 @@
     "vitest": "^3.0.7"
   }
 }
-
