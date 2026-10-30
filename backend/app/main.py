@@ -22,6 +22,11 @@ from backend.app.api.routes.public_profile import (
     profile_router,
     public_profile_router,
 )
+from backend.app.api.routes.recruiter import (
+    company_router,
+    recruiter_router,
+)
+
 from backend.app.core.config import settings
 from backend.app.core.security import AuthException
 from backend.app.execution.security import ExecutionSecurityException
@@ -251,3 +256,16 @@ app.include_router(
     prefix="/api/public-profile",
     tags=["Public Profile"],
 )
+
+app.include_router(
+    company_router,
+    prefix="/api/company",
+    tags=["Company Profile"],
+)
+
+app.include_router(
+    recruiter_router,
+    prefix="/api/recruiter",
+    tags=["Recruiter"],
+)
+
