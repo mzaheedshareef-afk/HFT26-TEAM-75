@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { DashboardShell } from '../../components/layout/DashboardShell';
+import { AiInteractionEfficiencyCard } from '../../components/analytics/AiInteractionEfficiencyCard';
 import { VerdictBadge } from '../../components/assessment/TestResultsPanel';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
@@ -156,20 +157,28 @@ export function AssessmentResultsPage() {
             </p>
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isLoading}
-            onClick={() => void loadResults()}
-            leftIcon={
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`}
-              />
-            }
-          >
-            Refresh Results
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/student/analytics"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Analytics Dashboard
+            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isLoading}
+              onClick={() => void loadResults()}
+              leftIcon={
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`}
+                />
+              }
+            >
+              Refresh Results
+            </Button>
+          </div>
         </div>
 
         {fetchNotice && (
@@ -246,7 +255,7 @@ export function AssessmentResultsPage() {
               )}
             </section>
 
-            {/* Primary KPI Grid: Final Score, Passed/Failed Test Cases, Execution Time, Memory Usage (if supplied), AI Hint Usage */}
+            {/* Primary KPI Grid */}
             <section
               aria-label="Assessment result metrics"
               className={`grid gap-4 sm:grid-cols-2 ${
@@ -376,6 +385,21 @@ export function AssessmentResultsPage() {
                 </p>
               </div>
             </section>
+
+            {/* Module 2: AI Interaction & Efficiency Display */}
+            <AiInteractionEfficiencyCard
+              totalHintRequests={result.total_hints_used}
+              hintLevelsUsed={result.hint_levels_used ?? []}
+              usedOrViewedHints={
+                result.hints_viewed ?? result.total_hints_used > 0
+              }
+              codingScore={
+                result.coding_score ??
+                result.deterministic_score ??
+                result.final_score
+              }
+              backendAiEfficiencyScore={result.ai_efficiency_score}
+            />
 
             {/* Question-Wise Results Table */}
             <section className="rounded-xl border border-slate-200 bg-white shadow-2xs overflow-hidden">

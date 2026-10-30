@@ -2,6 +2,7 @@ import axios from 'axios';
 import { api } from './api';
 import type {
   ActiveAssessmentSession,
+  AiHintLevel,
   AssessmentCompletionStatus,
   AssessmentDifficultyLabel,
   AssessmentGenerateRequest,
@@ -89,6 +90,34 @@ function resolveLanguageAlias(raw: unknown): SupportedLanguage | null {
   if (typeof raw !== 'string') return null;
   const key = raw.trim().toLowerCase();
   return LANGUAGE_ALIASES[key] ?? null;
+}
+
+function extractBackendEfficiencyScore(
+  raw: Record<string, unknown>
+): number | null {
+  // Strictly reads ONLY an official score returned by the backend.
+  // Never computes or approximates the efficiency score in the frontend.
+  if (
+    typeof raw.ai_efficiency_score === 'number' &&
+    Number.isFinite(raw.ai_efficiency_score)
+  ) {
+    return raw.ai_efficiency_score;
+  }
+  if (
+    typeof raw.efficiency_score === 'number' &&
+    Number.isFinite(raw.efficiency_score)
+  ) {
+    return raw.efficiency_score;
+  }
+  return null;
+}
+
+function normalizeHintLevelsArray(raw: unknown): AiHintLevel[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const levels = raw
+    .map((item) => (typeof item === 'string' ? Number.parseInt(item, 10) : item))
+    .filter((lvl): lvl is AiHintLevel => lvl === 1 || lvl === 2 || lvl === 3);
+  return Array.from(new Set(levels)).sort((a, b) => a - b) as AiHintLevel[];
 }
 
 export function normalizeExecutionVerdict(
@@ -247,8 +276,6 @@ export function normalizeCodingQuestion(
       )
     : [];
 
-  // Preserve string-list constraints returned by Vasil's GeneratedQuestionSchema,
-  // avoiding duplicate time/memory lines already rendered as primary constraint bullets.
   const combinedNotes = [...objNotes, ...rawConstraintsList].filter((note) => {
     const trimmed = note.trim();
     if (!trimmed) return false;
@@ -563,6 +590,16 @@ export function normalizeScoreSummary(
       : runResults?.memory_used_mb;
 
   const rawEfficiency = isRecord(raw.efficiency) ? raw.efficiency : null;
+  const deterministicScore =
+    typeof raw.deterministic_score === 'number'
+      ? raw.deterministic_score
+      : typeof raw.coding_score === 'number'
+      ? raw.coding_score
+      : typeof raw.overall_score === 'number'
+      ? raw.overall_score
+      : typeof raw.score === 'number'
+      ? raw.score
+      : 0;
 
   return {
     submission_id:
@@ -576,22 +613,16 @@ export function normalizeScoreSummary(
     question_title:
       typeof raw.question_title === 'string' ? raw.question_title : undefined,
     language: resolveLanguageAlias(raw.language) ?? undefined,
-    deterministic_score:
-      typeof raw.deterministic_score === 'number'
-        ? raw.deterministic_score
-        : typeof raw.overall_score === 'number'
-        ? raw.overall_score
-        : typeof raw.score === 'number'
-        ? raw.score
-        : 0,
+    deterministic_score: deterministicScore,
+    coding_score:
+      typeof raw.coding_score === 'number'
+        ? raw.coding_score
+        : deterministicScore,
     overall_score:
       typeof raw.overall_score === 'number'
         ? raw.overall_score
-        : typeof raw.deterministic_score === 'number'
-        ? raw.deterministic_score
-        : typeof raw.score === 'number'
-        ? raw.score
-        : 0,
+        : deterministicScore,
+    ai_efficiency_score: extractBackendEfficiencyScore(raw),
     passed_tests: passedTests,
     failed_tests: failedTests,
     total_tests: totalTests,
@@ -779,7 +810,18 @@ export function normalizeAssessmentSummary(
     completed_at:
       typeof raw.completed_at === 'string' ? raw.completed_at : undefined,
     final_score:
-      typeof raw.final_score === 'number' ? raw.final_score : null,
+      typeof raw.final_score === 'number'
+        ? raw.final_score
+        : typeof raw.overall_score === 'number'
+        ? raw.overall_score
+        : null,
+    coding_score:
+      typeof raw.coding_score === 'number'
+        ? raw.coding_score
+        : typeof raw.deterministic_score === 'number'
+        ? raw.deterministic_score
+        : null,
+    ai_efficiency_score: extractBackendEfficiencyScore(raw),
   };
 }
 
@@ -867,6 +909,7 @@ export function normalizeAssessmentResult(
             ? item.memory_used_mb
             : undefined,
         hints_used: typeof item.hints_used === 'number' ? item.hints_used : 0,
+        hint_levels_used: normalizeHintLevelsArray(item.hint_levels_used),
         detected_time_complexity:
           typeof item.detected_time_complexity === 'string'
             ? item.detected_time_complexity
@@ -936,6 +979,41 @@ export function normalizeAssessmentResult(
       ? Math.max(...memValues)
       : undefined;
 
+  const deterministicScore =
+    typeof raw.deterministic_score === 'number'
+      ? raw.deterministic_score
+      : typeof raw.coding_score === 'number'
+      ? raw.coding_score
+      : undefined;
+
+  const codingScore =
+    typeof raw.coding_score === 'number'
+      ? raw.coding_score
+      : deterministicScore;
+
+  // Derive which progressive tiers were used from explicit backend array or per-question hint counts (1..3)
+  const explicitLevels = normalizeHintLevelsArray(raw.hint_levels_used);
+  const derivedLevelsSet = new Set<AiHintLevel>(explicitLevels ?? []);
+  if (!explicitLevels) {
+    for (const q of questionPerformance) {
+      if (q.hint_levels_used) {
+        for (const lvl of q.hint_levels_used) derivedLevelsSet.add(lvl);
+      } else {
+        for (let tier = 1; tier <= Math.min(3, q.hints_used); tier += 1) {
+          derivedLevelsSet.add(tier as AiHintLevel);
+        }
+      }
+    }
+  }
+  const normalizedLevels = Array.from(derivedLevelsSet).sort(
+    (a, b) => a - b
+  ) as AiHintLevel[];
+
+  const totalHintsUsed =
+    typeof raw.total_hints_used === 'number'
+      ? raw.total_hints_used
+      : derivedHints;
+
   return {
     assessment_id:
       (typeof raw.assessment_id === 'string' && raw.assessment_id) ||
@@ -952,10 +1030,9 @@ export function normalizeAssessmentResult(
         : typeof raw.overall_score === 'number'
         ? raw.overall_score
         : 0,
-    deterministic_score:
-      typeof raw.deterministic_score === 'number'
-        ? raw.deterministic_score
-        : undefined,
+    deterministic_score: deterministicScore,
+    coding_score: codingScore,
+    ai_efficiency_score: extractBackendEfficiencyScore(raw),
     correct_test_cases: correctTestCases,
     failed_test_cases: failedTestCases,
     total_test_cases: totalTestCases,
@@ -971,10 +1048,13 @@ export function normalizeAssessmentResult(
         : undefined,
     total_execution_time_ms: totalExecutionTimeMs,
     peak_memory_mb: peakMemoryMb,
-    total_hints_used:
-      typeof raw.total_hints_used === 'number'
-        ? raw.total_hints_used
-        : derivedHints,
+    total_hints_used: totalHintsUsed,
+    hint_levels_used:
+      normalizedLevels.length > 0 ? normalizedLevels : undefined,
+    hints_viewed:
+      typeof raw.hints_viewed === 'boolean'
+        ? raw.hints_viewed
+        : totalHintsUsed > 0,
     completed_at:
       typeof raw.completed_at === 'string' ? raw.completed_at : undefined,
     question_performance: questionPerformance,
@@ -1177,7 +1257,9 @@ export const assessmentService = {
 
     const data = response.data;
     if (!isRecord(data)) {
-      throw new Error('Malformed submission grading response returned by server.');
+      throw new Error(
+        'Malformed submission grading response returned by server.'
+      );
     }
 
     const normalizedRunResults = isRecord(data.run_results)

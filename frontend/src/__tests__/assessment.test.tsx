@@ -278,11 +278,16 @@ describe('Personalized Technical Assessment & Coding Workspace Frontend', () => 
       formatSourceCode('def run():\n\treturn 42   \n\n\n\n', 'python')
     ).toBe('def run():\n    return 42\n');
 
-    vi.spyOn(api, 'get').mockResolvedValueOnce({
-      data: {
-        success: true,
-        assessment: sampleBackendAssessment,
-      },
+    vi.spyOn(api, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/assessment/assess-75') {
+        return {
+          data: {
+            success: true,
+            assessment: sampleBackendAssessment,
+          },
+        };
+      }
+      throw createAxiosError(404);
     });
 
     renderAtRoute('/student/assessment/assess-75/workspace');
@@ -345,11 +350,16 @@ describe('Personalized Technical Assessment & Coding Workspace Frontend', () => 
     const user = userEvent.setup();
     seedAuthenticatedStudent();
 
-    vi.spyOn(api, 'get').mockResolvedValueOnce({
-      data: {
-        success: true,
-        assessment: sampleBackendAssessment,
-      },
+    vi.spyOn(api, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/assessment/assess-75') {
+        return {
+          data: {
+            success: true,
+            assessment: sampleBackendAssessment,
+          },
+        };
+      }
+      throw createAxiosError(404);
     });
 
     const postSpy = vi
@@ -470,11 +480,16 @@ describe('Personalized Technical Assessment & Coding Workspace Frontend', () => 
     const user = userEvent.setup();
     seedAuthenticatedStudent();
 
-    vi.spyOn(api, 'get').mockResolvedValueOnce({
-      data: {
-        success: true,
-        assessment: sampleBackendAssessment,
-      },
+    vi.spyOn(api, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/assessment/assess-75') {
+        return {
+          data: {
+            success: true,
+            assessment: sampleBackendAssessment,
+          },
+        };
+      }
+      throw createAxiosError(404);
     });
 
     const postSpy = vi
@@ -575,11 +590,16 @@ describe('Personalized Technical Assessment & Coding Workspace Frontend', () => 
     expect(sanitized.content).not.toContain('self.tokens -= tokens');
     expect(sanitized.content).toContain('redacted by Guarded AI Tutor');
 
-    vi.spyOn(api, 'get').mockResolvedValueOnce({
-      data: {
-        success: true,
-        assessment: sampleBackendAssessment,
-      },
+    vi.spyOn(api, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/assessment/assess-75') {
+        return {
+          data: {
+            success: true,
+            assessment: sampleBackendAssessment,
+          },
+        };
+      }
+      throw createAxiosError(404);
     });
 
     const postSpy = vi

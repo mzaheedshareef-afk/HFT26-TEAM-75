@@ -1,10 +1,15 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   AlertCircle,
+  Bot,
+  History,
   Lightbulb,
+  Loader2,
   Lock,
+  MessageSquare,
   ShieldCheck,
   Sparkles,
+  User,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import {
@@ -26,9 +31,23 @@ interface AiHintPanelProps {
   language: SupportedLanguage;
   currentCode: string;
   hintsForQuestion: AiHintItem[];
+  sessionHintHistory?: AiHintItem[];
+  isLoadingHistory?: boolean;
   totalSessionHintsUsed: number;
   disabled?: boolean;
+  panelRef?: React.RefObject<HTMLElement | null>;
   onHintReceived: (hint: AiHintItem) => void;
+}
+
+function formatHintTimestamp(isoString: string): string {
+  const parsed = new Date(isoString);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Just now';
+  }
+  return parsed.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function AiHintPanel({
@@ -38,12 +57,16 @@ export function AiHintPanel({
   language,
   currentCode,
   hintsForQuestion,
+  sessionHintHistory = [],
+  isLoadingHistory = false,
   totalSessionHintsUsed,
   disabled = false,
+  panelRef,
   onHintReceived,
 }: AiHintPanelProps) {
   const [isRequesting, setIsRequesting] = useState(false);
   const [hintError, setHintError] = useState<string | null>(null);
+  const [showFullHistory, setShowFullHistory] = useState(false);
 
   const usedCount = hintsForQuestion.length;
   const hasRemainingHints = usedCount < MAX_HINTS_PER_QUESTION;
@@ -52,6 +75,9 @@ export function AiHintPanel({
     usedCount + 1
   ) as AiHintLevel;
   const nextTierMeta = HINT_TIER_DEFINITIONS[nextLevel];
+
+  const combinedHistory =
+    sessionHintHistory.length > 0 ? sessionHintHistory : hintsForQuestion;
 
   const handleRequestNextHint = async () => {
     if (!questionId || !hasRemainingHints || disabled || isRequesting) return;
@@ -84,8 +110,10 @@ export function AiHintPanel({
 
   return (
     <section
+      ref={panelRef}
+      tabIndex={-1}
       aria-labelledby="ai-hints-panel-heading"
-      className="rounded-xl border border-slate-200 bg-white overflow-hidden"
+      className="rounded-xl border border-slate-200 bg-white overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
     >
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
@@ -127,13 +155,13 @@ export function AiHintPanel({
           />
           <p className="leading-relaxed">
             <strong className="font-semibold text-slate-900">
-              Non-Spoiler Tutor Guardrail:
+              Non-Spoiler AI Tutor:
             </strong>{' '}
-            Hints unlock progressively across 3 conceptual tiers and never automatically reveal full solutions.
+            Progressive guidance stays open alongside your editor. The backend controls permitted hint tiers and never reveals full solutions or hidden test cases.
           </p>
         </div>
 
-        {/* Progressive Tier Stepper */}
+        {/* Progressive Hint Levels (Hint 1, Hint 2, Hint 3) */}
         <div
           aria-label="Progressive hint tiers"
           className="grid gap-2 sm:grid-cols-3"
@@ -155,15 +183,18 @@ export function AiHintPanel({
                 }`}
               >
                 <div className="flex items-center justify-between font-semibold">
-                  <span>Tier {tier}</span>
+                  <span>Hint {tier}</span>
                   {isUnlocked ? (
                     <span className="text-[11px] text-emerald-700">
                       Unlocked
                     </span>
                   ) : isNext ? (
-                    <span className="text-[11px] text-blue-700">Available</span>
+                    <span className="text-[11px] text-blue-700">Next</span>
                   ) : (
-                    <Lock className="h-3 w-3 text-slate-400" aria-hidden="true" />
+                    <Lock
+                      className="h-3 w-3 text-slate-400"
+                      aria-hidden="true"
+                    />
                   )}
                 </div>
                 <p className="text-[11px] leading-snug">{meta.shortLabel}</p>
@@ -186,41 +217,107 @@ export function AiHintPanel({
           </div>
         )}
 
-        {/* Returned Hints Feed */}
-        {hintsForQuestion.length === 0 ? (
-          <p className="py-2 text-center text-xs text-slate-500">
-            No AI hints requested for this problem yet. Request Tier 1 guidance below if you get stuck.
-          </p>
-        ) : (
-          <ol className="space-y-3" aria-label="Unlocked AI hints">
-            {hintsForQuestion.map((hint) => (
-              <li
-                key={hint.hint_id}
-                className="rounded-lg border border-amber-200/80 bg-amber-50/30 p-3.5 space-y-2"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900">
-                    <Sparkles
-                      className="h-3.5 w-3.5 text-amber-600"
-                      aria-hidden="true"
-                    />
-                    <span>{hint.category_label}</span>
-                  </span>
+        {/* Chat-Style AI Assistant Stream */}
+        <div
+          aria-label="AI Tutor chat panel"
+          className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 space-y-3 max-h-80 overflow-y-auto"
+        >
+          {isLoadingHistory && hintsForQuestion.length === 0 ? (
+            <div
+              role="status"
+              className="flex items-center justify-center gap-2 py-4 text-xs text-slate-500"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
+              <span>Syncing hint history...</span>
+            </div>
+          ) : hintsForQuestion.length === 0 && !isRequesting ? (
+            <div className="flex flex-col items-center justify-center py-4 text-center space-y-1.5">
+              <MessageSquare
+                className="h-5 w-5 text-slate-400"
+                aria-hidden="true"
+              />
+              <p className="text-xs font-medium text-slate-700">
+                No AI hints requested for this question yet
+              </p>
+              <p className="max-w-xs text-[11px] text-slate-500 leading-relaxed">
+                Request Hint 1 for conceptual direction while continuing to edit your code in the workspace.
+              </p>
+            </div>
+          ) : (
+            <ol className="space-y-3" aria-label="Unlocked AI hints">
+              {hintsForQuestion.map((hint) => {
+                const tierMeta = HINT_TIER_DEFINITIONS[hint.level];
+                return (
+                  <li key={hint.hint_id} className="space-y-2">
+                    {/* Student Request Chat Bubble */}
+                    <div className="flex items-start justify-end gap-2">
+                      <div className="rounded-2xl rounded-tr-xs border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-700 shadow-2xs">
+                        <span className="font-semibold text-slate-900">
+                          Requested Hint {hint.level}:
+                        </span>{' '}
+                        {tierMeta.shortLabel}
+                      </div>
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-700">
+                        <User className="h-3.5 w-3.5" aria-hidden="true" />
+                      </span>
+                    </div>
 
-                  {hint.redacted_solution_attempt && (
-                    <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800">
-                      Solution Guardrail Applied
-                    </span>
-                  )}
-                </div>
+                    {/* Guarded AI Assistant Response Chat Bubble */}
+                    <div className="flex items-start gap-2.5">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 border border-amber-200 text-amber-800 mt-0.5">
+                        <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                      </span>
 
-                <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-line">
-                  {hint.content}
-                </p>
-              </li>
-            ))}
-          </ol>
-        )}
+                      <div className="flex-1 rounded-2xl rounded-tl-xs border border-amber-200/90 bg-white p-3 space-y-1.5 shadow-2xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+                            <Sparkles
+                              className="h-3.5 w-3.5 text-amber-600"
+                              aria-hidden="true"
+                            />
+                            <span>{hint.category_label}</span>
+                          </span>
+
+                          <div className="flex items-center gap-1.5">
+                            {hint.redacted_solution_attempt && (
+                              <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-800">
+                                Solution Guardrail Applied
+                              </span>
+                            )}
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {formatHintTimestamp(hint.created_at)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-line">
+                          {hint.content}
+                        </p>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+
+          {/* Live AI Typing State */}
+          {isRequesting && (
+            <div
+              role="status"
+              className="flex items-center gap-2.5 rounded-xl border border-amber-200/70 bg-white p-2.5 text-xs text-slate-600"
+            >
+              <Loader2
+                className="h-3.5 w-3.5 animate-spin text-amber-600 shrink-0"
+                aria-hidden="true"
+              />
+              <span>
+                Guarded AI Tutor is generating Hint {nextLevel} (
+                {nextTierMeta.shortLabel})...
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Request Action */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-t border-slate-100 pt-3">
@@ -238,15 +335,77 @@ export function AiHintPanel({
             isLoading={isRequesting}
             loadingText="Requesting Hint..."
             onClick={() => void handleRequestNextHint()}
-            leftIcon={<Sparkles className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />}
+            leftIcon={
+              <Sparkles
+                className="h-3.5 w-3.5 text-amber-600"
+                aria-hidden="true"
+              />
+            }
           >
             {hasRemainingHints
               ? `Request Hint (Tier ${nextLevel})`
               : 'All Hints Used'}
           </Button>
         </div>
+
+        {/* Session Hint Request History Log */}
+        <div className="border-t border-slate-100 pt-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowFullHistory((prev) => !prev)}
+              aria-expanded={showFullHistory}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
+            >
+              <History className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+              <span>Hint Request History ({combinedHistory.length})</span>
+            </button>
+
+            {combinedHistory.length > 0 && (
+              <span className="text-[11px] text-slate-500">
+                {showFullHistory ? 'Hide log' : 'View log'}
+              </span>
+            )}
+          </div>
+
+          {showFullHistory && (
+            <div
+              aria-label="Session hint request history"
+              className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 space-y-2"
+            >
+              {combinedHistory.length === 0 ? (
+                <p className="text-[11px] text-slate-500 text-center py-1">
+                  No hint requests recorded in this assessment session.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-200/70 text-[11px]">
+                  {combinedHistory.map((entry) => (
+                    <li
+                      key={`history-${entry.hint_id}`}
+                      className="py-1.5 first:pt-0 last:pb-0 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-1.5 text-slate-700">
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">
+                          Hint {entry.level}
+                        </span>
+                        <span className="font-medium text-slate-900">
+                          {entry.question_title || entry.question_id}
+                        </span>
+                        <span className="text-slate-500">
+                          &middot; {HINT_TIER_DEFINITIONS[entry.level].shortLabel}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10px] text-slate-500">
+                        {formatHintTimestamp(entry.created_at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
 }
-

@@ -30,10 +30,15 @@ import { ScoreSummaryCard } from '../../components/assessment/ScoreSummaryCard';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
 import { assessmentService } from '../../services/assessmentService';
+import {
+  assistantService,
+  MAX_HINTS_PER_QUESTION,
+} from '../../services/assistantService';
 import { extractApiErrorMessage } from '../../services/api';
 import type {
   ActiveAssessmentSession,
   AiHintItem,
+  AiHintLevel,
   AssessmentResultDetail,
   CodeRunResponse,
   CodingQuestion,
@@ -67,7 +72,11 @@ function readPersistedDrafts(assessmentId?: string): Record<string, string> {
     const raw = sessionStorage.getItem(getDraftStorageKey(assessmentId));
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
       const clean: Record<string, string> = {};
       for (const [key, value] of Object.entries(parsed)) {
         if (typeof value === 'string') {
@@ -140,6 +149,7 @@ export function AssessmentWorkspacePage() {
 
   // Synchronous mutex preventing rapid double-click duplicate POSTs before React re-renders
   const submittingLockRef = useRef(false);
+  const hintPanelRef = useRef<HTMLElement | null>(null);
 
   const [runsByQuestion, setRunsByQuestion] = useState<
     Record<string, CodeRunResponse>
@@ -181,6 +191,25 @@ export function AssessmentWorkspacePage() {
   const activeQuestionHints = activeQuestion
     ? hintsByQuestion[activeQuestion.question_id] ?? []
     : [];
+
+  const sessionHintHistory = useMemo(() => {
+    const titleById = new Map<string, string>();
+    for (const q of questions) {
+      titleById.set(q.question_id, q.title);
+    }
+    const allHints = Object.values(hintsByQuestion)
+      .flat()
+      .map((hint) => ({
+        ...hint,
+        question_title:
+          hint.question_title ?? titleById.get(hint.question_id),
+      }));
+
+    return allHints.sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  }, [hintsByQuestion, questions]);
 
   const currentSnapshot = makeSubmissionSnapshot(language, activeCode);
   const isDuplicateSubmission = Boolean(
@@ -246,7 +275,62 @@ export function AssessmentWorkspacePage() {
     }
   }, [assessmentId, initialSession, fetchSession]);
 
+  // Hydrate previously requested AI hints for the loaded assessment session
+  useEffect(() => {
+    const loadedAssessmentId = session?.assessment_id;
+    if (!loadedAssessmentId || isLoadingSession) return;
+
+    const abortController = new AbortController();
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const history = await assistantService.getHintHistory({
+          assessmentId: loadedAssessmentId,
+          signal: abortController.signal,
+        });
+        if (cancelled || history.length === 0) return;
+
+        setHintsByQuestion((prev) => {
+          const next = { ...prev };
+          for (const hint of history) {
+            const existing = next[hint.question_id] ?? [];
+            const alreadyPresent = existing.some(
+              (item) =>
+                item.hint_id === hint.hint_id || item.level === hint.level
+            );
+            if (!alreadyPresent) {
+              next[hint.question_id] = [...existing, hint].sort(
+                (a, b) => a.level - b.level
+              );
+            }
+          }
+          return next;
+        });
+      } catch {
+        // Optional hint history hydration fails silently if assistant history route is offline
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
+  }, [session?.assessment_id, isLoadingSession]);
+
   const effectiveAssessmentId = session?.assessment_id ?? assessmentId;
+
+  const handleOpenAiHints = () => {
+    if (hintPanelRef.current) {
+      if (typeof hintPanelRef.current.scrollIntoView === 'function') {
+        hintPanelRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+      hintPanelRef.current.focus();
+    }
+  };
 
   const handleCodeChange = (nextCode: string) => {
     if (!activeQuestion) return;
@@ -291,9 +375,13 @@ export function AssessmentWorkspacePage() {
   const handleHintReceived = (hint: AiHintItem) => {
     if (!activeQuestion) return;
     const qId = activeQuestion.question_id;
+    const enrichedHint: AiHintItem = {
+      ...hint,
+      question_title: hint.question_title ?? activeQuestion.title,
+    };
     setHintsByQuestion((prev) => ({
       ...prev,
-      [qId]: [...(prev[qId] ?? []), hint],
+      [qId]: [...(prev[qId] ?? []), enrichedHint],
     }));
   };
 
@@ -399,16 +487,25 @@ export function AssessmentWorkspacePage() {
   /**
    * Builds a strictly real result summary from actual backend-graded submissions
    * when navigating to the results page if a separate /complete endpoint returns 404.
-   * Never fabricates execution times, memory metrics, or scores.
+   * Never fabricates execution times, memory metrics, or AI efficiency scores.
    */
   const buildVerifiedSessionResult = (): AssessmentResultDetail | null => {
     if (!session || submittedQuestionCount === 0) return null;
+
+    const allLevelsSet = new Set<AiHintLevel>();
 
     const questionPerformance: QuestionPerformanceItem[] =
       session.questions.map((q) => {
         const sub = submissionsByQuestion[q.question_id];
         const run = runsByQuestion[q.question_id];
-        const qHints = hintsByQuestion[q.question_id]?.length ?? 0;
+        const qHintList = hintsByQuestion[q.question_id] ?? [];
+        const qLevels = Array.from(
+          new Set(qHintList.map((h) => h.level))
+        ).sort((a, b) => a - b) as AiHintLevel[];
+
+        for (const lvl of qLevels) {
+          allLevelsSet.add(lvl);
+        }
 
         if (!sub) {
           const publicTotal = q.public_test_cases.length;
@@ -421,7 +518,8 @@ export function AssessmentWorkspacePage() {
             passed_tests: 0,
             failed_tests: publicTotal,
             total_tests: publicTotal,
-            hints_used: qHints,
+            hints_used: qHintList.length,
+            hint_levels_used: qLevels.length > 0 ? qLevels : undefined,
           };
         }
 
@@ -439,7 +537,8 @@ export function AssessmentWorkspacePage() {
           total_tests: sub.total_tests,
           execution_time_ms: sub.execution_time_ms ?? run?.total_time_ms,
           memory_used_mb: sub.memory_used_mb ?? run?.memory_used_mb,
-          hints_used: qHints,
+          hints_used: qHintList.length,
+          hint_levels_used: qLevels.length > 0 ? qLevels : undefined,
           detected_time_complexity: sub.efficiency?.detected_time_complexity,
         };
       });
@@ -465,12 +564,25 @@ export function AssessmentWorkspacePage() {
       submittedList.reduce((sum, item) => sum + item.deterministic_score, 0) /
       Math.max(1, session.questions.length);
 
+    // Only pass through backend AI efficiency score if explicitly returned on submission summaries
+    const backendEfficiencyValues = submittedList
+      .map((item) => item.ai_efficiency_score)
+      .filter((val): val is number => typeof val === 'number');
+    const passthroughBackendEfficiency =
+      backendEfficiencyValues.length === 1
+        ? backendEfficiencyValues[0]
+        : null;
+
     const execTimes = questionPerformance
       .map((item) => item.execution_time_ms)
       .filter((ms): ms is number => typeof ms === 'number');
     const memUsages = questionPerformance
       .map((item) => item.memory_used_mb)
       .filter((mb): mb is number => typeof mb === 'number');
+
+    const sortedAllLevels = Array.from(allLevelsSet).sort(
+      (a, b) => a - b
+    ) as AiHintLevel[];
 
     return {
       assessment_id: session.assessment_id,
@@ -482,6 +594,8 @@ export function AssessmentWorkspacePage() {
         : 'partially_completed',
       final_score: avgScore,
       deterministic_score: avgDeterministic,
+      coding_score: avgDeterministic,
+      ai_efficiency_score: passthroughBackendEfficiency,
       correct_test_cases: totalCorrect,
       failed_test_cases: totalFailed,
       total_test_cases: totalCases,
@@ -494,6 +608,9 @@ export function AssessmentWorkspacePage() {
       peak_memory_mb:
         memUsages.length > 0 ? Math.max(...memUsages) : undefined,
       total_hints_used: totalSessionHintsUsed,
+      hint_levels_used:
+        sortedAllLevels.length > 0 ? sortedAllLevels : undefined,
+      hints_viewed: totalSessionHintsUsed > 0,
       completed_at: new Date().toISOString(),
       question_performance: questionPerformance,
     };
@@ -758,15 +875,20 @@ export function AssessmentWorkspacePage() {
                 question={activeQuestion}
                 questionIndex={activeQuestionIdx}
                 totalQuestions={questions.length}
+                hintsUsedForQuestion={activeQuestionHints.length}
+                maxHintsPerQuestion={MAX_HINTS_PER_QUESTION}
+                onOpenAiHints={handleOpenAiHints}
               />
 
               <AiHintPanel
+                panelRef={hintPanelRef}
                 assessmentId={session?.assessment_id}
                 questionId={activeQuestion?.question_id ?? null}
                 questionTitle={activeQuestion?.title}
                 language={language}
                 currentCode={activeCode}
                 hintsForQuestion={activeQuestionHints}
+                sessionHintHistory={sessionHintHistory}
                 totalSessionHintsUsed={totalSessionHintsUsed}
                 disabled={isTimeExpired}
                 onHintReceived={handleHintReceived}
@@ -825,7 +947,8 @@ export function AssessmentWorkspacePage() {
                       aria-hidden="true"
                     />
                     <span className="font-semibold">
-                      Submission Status: Graded ({Math.round(activeScoreSummary.overall_score)} / 100)
+                      Submission Status: Graded (
+                      {Math.round(activeScoreSummary.overall_score)} / 100)
                     </span>
                     <span className="text-emerald-800">
                       &middot;{' '}
