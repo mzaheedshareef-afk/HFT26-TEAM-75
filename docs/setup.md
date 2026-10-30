@@ -71,6 +71,16 @@ DEBUG=true
 
 # Allowed CORS Origins (comma-separated)
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173,http://localhost:8000
+
+# Featherless AI Configuration (Personalized Assessment)
+FEATHERLESS_API_KEY=your-featherless-api-key
+FEATHERLESS_BASE_URL=https://api.featherless.ai/v1
+FEATHERLESS_MODEL=meta-llama/Meta-Llama-3.1-70B-Instruct
+
+# Docker Execution Sandbox Configuration
+DOCKER_SANDBOX_IMAGE=python:3.12-slim
+DOCKER_TIMEOUT_SECONDS=2.0
+DOCKER_MEMORY_LIMIT_MB=256
 ```
 
 ### 3.2 Frontend Configuration (`frontend/.env`)
@@ -87,9 +97,27 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ---
 
-## 4. Installation & Local Execution
+## 4. Supabase Storage & Migration Setup
 
-### 4.1 Backend Setup & Execution
+### 4.1 Database Migration
+1. In the Supabase Dashboard, open the **SQL Editor**.
+2. Run `database/schema.sql` (if not already applied).
+3. Run `database/migrations/002_portfolio_and_assessment.sql` to create:
+   - `portfolios` table with RLS policies.
+   - `assessments` and `assessment_questions` tables.
+
+### 4.2 Supabase Storage Configuration
+The backend automatically initializes the `portfolios` storage bucket on first upload. If configuring manually:
+1. Navigate to **Storage** in the Supabase Dashboard.
+2. Click **New bucket**.
+3. Name the bucket `portfolios` (Private bucket).
+4. Save.
+
+---
+
+## 5. Installation & Local Execution
+
+### 5.1 Backend Setup & Execution
 From the project root:
 
 ```bash
@@ -97,7 +125,7 @@ From the project root:
 pip install -r backend/requirements.txt
 
 # 2. Start FastAPI Server
-python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Backend URLs:
@@ -106,7 +134,7 @@ Backend URLs:
 - **ReDoc Documentation**: `http://localhost:8000/redoc`
 - **Health Check**: `http://localhost:8000/health`
 
-### 4.2 Frontend Setup & Execution
+### 5.2 Frontend Setup & Execution
 From the project root in a second terminal:
 
 ```bash
@@ -116,7 +144,7 @@ cd frontend
 npm install
 
 # 2. Start Vite Development Server
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 Frontend URL:
@@ -124,37 +152,52 @@ Frontend URL:
 
 ---
 
-## 5. Automated Testing Instructions
+## 6. Portfolio Upload Instructions
 
-### 5.1 Backend Unit & Contract Tests (Pytest)
-Run all 22 backend authentication unit scenarios (using in-memory Supabase mocks):
+### Via the React Web UI:
+1. Log in to the Student Portal at `http://localhost:5173/student/login`.
+2. Navigate to the **Portfolio & Stack** tab (`/student/portfolio`).
+3. Enter your primary **GitHub profile or flagship project repository URL** (e.g., `https://github.com/your-username`).
+4. Select one or more **primary programming languages** (e.g., Python, TypeScript).
+5. Optionally select frameworks, add architecture notes, or attach your resume / project archive.
+6. Click **Save & Analyze Portfolio**.
+7. The status will immediately update to **Calibrated & Ready**, displaying your linked repository, declared languages, and recommended assessment tracks.
+
+### Via Direct API Call (curl / HTTP):
 ```bash
-python -m pytest backend/tests/test_auth.py -v
+curl -X POST http://localhost:8000/api/portfolio/upload \
+  -H "Authorization: Bearer <STUDENT_JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "github_url": "https://github.com/candidate/repo",
+    "primary_languages": ["Python", "TypeScript"],
+    "frameworks": ["FastAPI", "React"],
+    "notes": "Backend and distributed systems engineer"
+  }'
 ```
 
-### 5.2 Full-Stack E2E Integration Tests (Pytest)
-Run the 8 full-stack integration tests covering student, company, and security workflows:
-```bash
-python -m pytest tests/integration/test_full_stack_integration.py -v
-```
+---
 
-### 5.3 Frontend Component & UI Tests (Vitest)
-Run all 14 React frontend component and flow tests:
+## 7. Automated Testing Instructions
+
+### 7.1 Run All Backend & Integration Tests (Pytest)
+From the repository root:
+```bash
+python -m pytest backend/tests/test_auth.py tests/integration/test_full_stack_integration.py tests/portfolio/test_portfolio_integration.py -v
+```
+**Total:** **43 Passed / 0 Failed**.
+
+### 7.2 Run All Frontend Tests (Vitest)
+From `frontend/`:
 ```bash
 cd frontend
 npm test
 ```
-
-### 5.4 Run Entire Integration Test Suite Together
-From the repository root:
-```bash
-python -m pytest backend/tests/test_auth.py tests/integration/test_full_stack_integration.py tests/sandbox_planning/test_sandbox_contract.py -v
-```
-**Result:** **35 Passed / 0 Failed**.
+**Total:** **19 Passed / 0 Failed** (`auth.test.tsx`, `portfolio.test.tsx`).
 
 ---
 
-## 6. Verification Checklist
+## 8. Verification Checklist
 
 | Scenario | Expected Result | Verified |
 | :--- | :--- | :---: |
@@ -163,11 +206,19 @@ python -m pytest backend/tests/test_auth.py tests/integration/test_full_stack_in
 | **Company Registration** | `POST /api/auth/company/register` returns 201 Created with JWT and `role: "company"` | ✅ |
 | **Company Login** | `POST /api/auth/company/login` returns 200 OK and Bearer token; redirects to `/company/dashboard` | ✅ |
 | **Session Profile** | `GET /api/auth/me` with Bearer token returns verified user details | ✅ |
-| **Role Protection** | Student attempting company login or dashboard access is blocked (`403 ROLE_MISMATCH`) | ✅ |
-| **Duplicate Registration** | Registering existing email returns `409 Conflict (EMAIL_ALREADY_EXISTS)` | ✅ |
-| **Weak Password** | Passwords without uppercase, lowercase, and number return `400 WEAK_PASSWORD` | ✅ |
-| **Invalid Email** | Malformed emails return `422 Unprocessable Entity (INVALID_EMAIL)` | ✅ |
-| **Empty Fields** | Submitting missing fields returns `422 Unprocessable Entity (MISSING_FIELDS)` | ✅ |
-| **Token Expiration / Invalid Token** | Expired or forged token returns `401 Unauthorized`; frontend automatically clears session | ✅ |
-| **Sign Out** | Clicking "Sign Out" removes tokens from `localStorage` and redirects to login | ✅ |
-| **Backend Unavailable** | Network failure or 503 renders an alert banner without app crashes | ✅ |
+| **Portfolio Initial State** | `GET /api/portfolio/me` before upload returns 404 `PORTFOLIO_NOT_FOUND` (frontend displays clean empty state) | ✅ |
+| **Portfolio Upload (Multipart)** | `POST /api/portfolio/upload` accepts form data + files, analyzes skills, returns 201 Created | ✅ |
+| **Portfolio Upload (JSON)** | `POST /api/portfolio/upload` accepts direct JSON body, returns 201 Created | ✅ |
+| **Portfolio Retrieval** | `GET /api/portfolio/me` returns uploaded record with declared stack and recommended tracks | ✅ |
+| **Portfolio By ID (Owner)** | `GET /api/portfolio/{id}` returns candidate portfolio to the owner | ✅ |
+| **Portfolio By ID (Recruiter)**| `GET /api/portfolio/{id}` returns candidate portfolio to authorized company users | ✅ |
+| **Cross-Student Security** | Student attempting to view another student's portfolio is rejected with `403 UNAUTHORIZED_ACCESS` | ✅ |
+| **Company Role Restriction** | Company user attempting portfolio upload is rejected with `403 ROLE_MISMATCH` | ✅ |
+| **Invalid GitHub URL** | Malformed GitHub link returns `422 INVALID_GITHUB_URL` with descriptive message | ✅ |
+| **Missing Languages** | Upload without languages returns `422 MISSING_FIELDS` | ✅ |
+| **Empty Payload** | Empty upload returns `422 MISSING_FIELDS` | ✅ |
+| **Oversized File** | Files > 15MB return `413 PAYLOAD_TOO_LARGE` | ✅ |
+| **Missing Auth Token** | Unauthenticated upload returns `401 UNAUTHORIZED` | ✅ |
+| **Token Expiry / Invalid Token** | Forged token returns `401 INVALID_TOKEN`; frontend automatically clears session | ✅ |
+| **Backend Unavailable** | Service disconnect renders alert banner gracefully without application crashes | ✅ |
+
