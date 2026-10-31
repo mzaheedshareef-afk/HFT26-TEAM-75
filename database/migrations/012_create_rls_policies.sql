@@ -343,3 +343,4 @@ CREATE POLICY "Students insert clipboard events" ON public.clipboard_events
 DROP POLICY IF EXISTS "Students view own clipboard events" ON public.clipboard_events;
 CREATE POLICY "Students view own clipboard events" ON public.clipboard_events
     FOR SELECT USING (auth.uid() = student_id);
+

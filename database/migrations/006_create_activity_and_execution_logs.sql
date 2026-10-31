@@ -41,3 +41,4 @@ CREATE INDEX IF NOT EXISTS idx_code_exec_user_id ON public.code_execution_logs(u
 CREATE INDEX IF NOT EXISTS idx_code_exec_question_id ON public.code_execution_logs(question_id);
 CREATE INDEX IF NOT EXISTS idx_code_exec_status ON public.code_execution_logs(execution_status);
 CREATE INDEX IF NOT EXISTS idx_code_exec_user_question ON public.code_execution_logs(user_id, question_id, created_at DESC);
+

@@ -99,3 +99,4 @@ SELECT
     created_at,
     updated_at
 FROM public.public_profiles;
+

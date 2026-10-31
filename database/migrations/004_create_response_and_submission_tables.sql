@@ -95,3 +95,4 @@ SELECT
     COALESCE(error_message, compiler_output) AS error_message,
     created_at
 FROM public.coding_submissions;
+

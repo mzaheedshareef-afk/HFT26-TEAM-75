@@ -18,3 +18,4 @@ CREATE TABLE IF NOT EXISTS public.question_generation_logs (
 CREATE INDEX IF NOT EXISTS idx_qgen_logs_assessment_id ON public.question_generation_logs(assessment_id);
 CREATE INDEX IF NOT EXISTS idx_qgen_logs_model ON public.question_generation_logs(model_name);
 CREATE INDEX IF NOT EXISTS idx_qgen_logs_created_at ON public.question_generation_logs(created_at DESC);
+

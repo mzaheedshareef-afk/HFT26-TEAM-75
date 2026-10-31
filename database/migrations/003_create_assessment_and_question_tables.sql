@@ -111,3 +111,4 @@ CREATE TABLE IF NOT EXISTS public.question_test_cases (
 
 CREATE INDEX IF NOT EXISTS idx_test_cases_question_id ON public.question_test_cases(question_id);
 CREATE INDEX IF NOT EXISTS idx_test_cases_is_sample ON public.question_test_cases(question_id, is_sample);
+

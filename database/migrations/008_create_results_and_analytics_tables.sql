@@ -97,3 +97,4 @@ CREATE TABLE IF NOT EXISTS public.student_analytics (
 
 CREATE INDEX IF NOT EXISTS idx_student_analytics_student ON public.student_analytics(student_id);
 CREATE INDEX IF NOT EXISTS idx_student_analytics_avg_score ON public.student_analytics(average_score DESC);
+

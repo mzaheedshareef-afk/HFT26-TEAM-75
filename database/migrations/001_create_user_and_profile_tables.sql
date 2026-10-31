@@ -51,3 +51,4 @@ CREATE TABLE IF NOT EXISTS public.company_profiles (
 -- Indexes on company_profiles
 CREATE INDEX IF NOT EXISTS idx_company_profiles_id ON public.company_profiles(id);
 CREATE INDEX IF NOT EXISTS idx_company_profiles_name ON public.company_profiles(company_name);
+

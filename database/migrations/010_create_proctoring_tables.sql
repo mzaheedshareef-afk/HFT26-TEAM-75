@@ -61,3 +61,4 @@ CREATE INDEX IF NOT EXISTS idx_clipboard_student ON public.clipboard_events(stud
 CREATE INDEX IF NOT EXISTS idx_clipboard_session ON public.clipboard_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_clipboard_question ON public.clipboard_events(question_id);
 CREATE INDEX IF NOT EXISTS idx_clipboard_recorded ON public.clipboard_events(student_id, recorded_at DESC);
+

@@ -112,3 +112,4 @@ SELECT
     created_at,
     updated_at
 FROM public.ai_efficiency_scores;
+

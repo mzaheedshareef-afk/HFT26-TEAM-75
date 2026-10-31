@@ -569,3 +569,4 @@ class TestDatabaseSchemaIntegration:
             }).execute()
 
         assert "unique" in str(exc_info.value).lower() or "duplicate" in str(exc_info.value).lower()
+

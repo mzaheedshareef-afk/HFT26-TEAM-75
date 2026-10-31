@@ -47,3 +47,4 @@ CREATE TABLE IF NOT EXISTS public.portfolio_versions (
 -- Indexes for portfolio_versions
 CREATE INDEX IF NOT EXISTS idx_portfolio_versions_portfolio_id ON public.portfolio_versions(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_portfolio_versions_version ON public.portfolio_versions(portfolio_id, version_number DESC);
+

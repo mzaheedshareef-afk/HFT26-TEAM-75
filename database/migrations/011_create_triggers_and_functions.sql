@@ -197,3 +197,4 @@ DROP TRIGGER IF EXISTS on_hint_analytics ON public.hint_history;
 CREATE TRIGGER on_hint_analytics
     AFTER INSERT ON public.hint_history
     FOR EACH ROW EXECUTE FUNCTION public.update_student_analytics_on_hint();
+
