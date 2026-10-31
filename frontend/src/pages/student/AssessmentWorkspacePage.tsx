@@ -163,6 +163,11 @@ export function AssessmentWorkspacePage() {
     Record<string, AiHintItem[]>
   >({});
 
+  const isAiAssistantDisabled = useMemo(() => {
+    const diff = (session?.difficulty || '').toLowerCase();
+    return diff === 'easy' || diff === 'novice';
+  }, [session?.difficulty]);
+
   const questions = session?.questions ?? [];
   const activeQuestion = questions[activeQuestionIdx] ?? null;
 
@@ -278,7 +283,7 @@ export function AssessmentWorkspacePage() {
   // Hydrate previously requested AI hints for the loaded assessment session
   useEffect(() => {
     const loadedAssessmentId = session?.assessment_id;
-    if (!loadedAssessmentId || isLoadingSession) return;
+    if (!loadedAssessmentId || isLoadingSession || isAiAssistantDisabled) return;
 
     const abortController = new AbortController();
     let cancelled = false;
@@ -877,22 +882,32 @@ export function AssessmentWorkspacePage() {
                 totalQuestions={questions.length}
                 hintsUsedForQuestion={activeQuestionHints.length}
                 maxHintsPerQuestion={MAX_HINTS_PER_QUESTION}
-                onOpenAiHints={handleOpenAiHints}
+                onOpenAiHints={isAiAssistantDisabled ? undefined : handleOpenAiHints}
               />
 
-              <AiHintPanel
-                panelRef={hintPanelRef}
-                assessmentId={session?.assessment_id}
-                questionId={activeQuestion?.question_id ?? null}
-                questionTitle={activeQuestion?.title}
-                language={language}
-                currentCode={activeCode}
-                hintsForQuestion={activeQuestionHints}
-                sessionHintHistory={sessionHintHistory}
-                totalSessionHintsUsed={totalSessionHintsUsed}
-                disabled={isTimeExpired}
-                onHintReceived={handleHintReceived}
-              />
+              {!isAiAssistantDisabled ? (
+                <AiHintPanel
+                  panelRef={hintPanelRef}
+                  assessmentId={session?.assessment_id}
+                  questionId={activeQuestion?.question_id ?? null}
+                  questionTitle={activeQuestion?.title}
+                  language={language}
+                  currentCode={activeCode}
+                  hintsForQuestion={activeQuestionHints}
+                  sessionHintHistory={sessionHintHistory}
+                  totalSessionHintsUsed={totalSessionHintsUsed}
+                  disabled={isTimeExpired}
+                  onHintReceived={handleHintReceived}
+                />
+              ) : (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 text-sm text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200 mb-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    AI Assistant Disabled
+                  </div>
+                  AI assistance is strictly disabled for Novice/Easy tier assessments to evaluate independent core coding competency.
+                </div>
+              )}
             </div>
 
             {/* Right Column: Monaco Editor + Submission Status + Test Runner + Score Summary */}

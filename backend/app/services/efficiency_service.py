@@ -39,6 +39,7 @@ class AIEfficiencyScorer:
         hint_interactions: List[Dict[str, Any]],
         questions: List[Dict[str, Any]],
         submissions: Optional[List[Dict[str, Any]]] = None,
+        tier: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Calculates normalized AI efficiency score and final composite score.
@@ -118,6 +119,39 @@ class AIEfficiencyScorer:
 
         # Normalize coding score bounds
         normalized_coding_score = round(max(0.0, min(100.0, coding_score)), 2)
+
+        # For Novice/Easy tier, AI Assistant is completely disabled.
+        # Technical score is normalized to full 100-point scale with zero penalty.
+        if tier and str(tier).strip().lower() in ("easy", "novice"):
+            return {
+                "coding_score": normalized_coding_score,
+                "ai_efficiency_score": 100.0,
+                "final_score": normalized_coding_score,
+                "formula_version": FORMULA_VERSION,
+                "formula_description": "Final Score = 100% Coding Score (Novice tier: AI Assistant disabled)",
+                "scoring_components": {
+                    "formula_version": FORMULA_VERSION,
+                    "tier": "novice",
+                    "weights": {
+                        "coding_weight": 1.0,
+                        "efficiency_weight": 0.0,
+                    },
+                    "total_questions": total_questions,
+                    "questions_solved_independently": total_questions,
+                    "questions_resolved_after_hints": 0,
+                    "total_hints_used": 0,
+                    "deductions": {
+                        "hint_progression_deduction": 0.0,
+                        "compilation_error_deduction": 0.0,
+                    },
+                    "bonuses": {
+                        "effective_utilization_bonus": 0.0,
+                        "independent_solving_bonus": 0.0,
+                    },
+                    "normalized_coding_score": normalized_coding_score,
+                    "raw_efficiency_score": 100.0,
+                },
+            }
 
         # Final composite score: 80% Coding + 20% AI Efficiency
         final_score = round(

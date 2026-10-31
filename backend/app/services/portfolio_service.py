@@ -129,6 +129,11 @@ class PortfolioService:
         resume_bytes: Optional[bytes] = None,
         archive_filename: Optional[str] = None,
         archive_bytes: Optional[bytes] = None,
+        dsa_topics_solved: Optional[List[str]] = None,
+        preferred_domain: Optional[str] = None,
+        skills: Optional[List[Dict[str, Any]]] = None,
+        projects: Optional[List[Dict[str, Any]]] = None,
+        version: str = "1.0",
     ) -> Dict[str, Any]:
         """
         Saves portfolio record into Supabase Storage and database table.
@@ -178,6 +183,9 @@ class PortfolioService:
         portfolio_id = _portfolio_memory_store.get(user_id, {}).get("id") or str(uuid.uuid4())
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        clean_dsa = [str(t).strip() for t in (dsa_topics_solved or []) if t and str(t).strip()]
+        resolved_domain = (preferred_domain or "Backend Development").strip()
+
         record = {
             "id": portfolio_id,
             "user_id": user_id,
@@ -199,6 +207,14 @@ class PortfolioService:
             "experience_level": exp_level,
             "recommended_tracks": tracks,
             "repositories": repositories,
+            "dsa_topics_solved": clean_dsa,
+            "dsa_topics": clean_dsa,
+            "dsaTopics": clean_dsa,
+            "preferred_domain": resolved_domain,
+            "domain": resolved_domain,
+            "skills": skills or [],
+            "projects": projects or [],
+            "version": version,
         }
 
         # Persist to Supabase Storage as portfolio.json
