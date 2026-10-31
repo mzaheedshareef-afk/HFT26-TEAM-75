@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # App Settings
     PROJECT_NAME: str = "Portfolio-Driven Adaptive Coding & Technical Assessment Platform"
     API_PREFIX: str = "/api"
+    ENVIRONMENT: str = "development"
     DEBUG: bool = False
 
     # Supabase Configuration
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")
