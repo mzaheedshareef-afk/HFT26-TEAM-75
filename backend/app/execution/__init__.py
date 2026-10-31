@@ -7,7 +7,11 @@ from backend.app.execution.docker_runner import (
 )
 from backend.app.execution.execution_manager import ExecutionManager, TestCaseResult
 from backend.app.execution.security import (
+    ContainerCreationError,
+    ContainerStartupError,
+    DockerSdkMissingError,
     DockerUnavailableError,
+    ExecutionImageNotFoundError,
     ExecutionSecurityException,
     ExecutionSecurityValidator,
     InvalidSourceCodeError,
@@ -26,6 +30,10 @@ __all__ = [
     "InvalidSourceCodeError",
     "SecurityViolationError",
     "DockerUnavailableError",
+    "DockerSdkMissingError",
+    "ExecutionImageNotFoundError",
+    "ContainerCreationError",
+    "ContainerStartupError",
     "set_docker_available_override",
     "set_custom_runner_hook",
 ]

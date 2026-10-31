@@ -42,6 +42,21 @@ logger = logging.getLogger("auth_app")
 async def lifespan(app: FastAPI):
     # Startup check
     logger.info("Initializing Backend Application with Secure Sandbox Execution...")
+    try:
+        from backend.app.execution.docker_runner import DockerRunner
+        docker_diag = DockerRunner.diagnose_docker()
+        if docker_diag.get("docker_available"):
+            logger.info(
+                f"Docker Execution Sandbox Ready: version {docker_diag.get('server_version')} "
+                f"({docker_diag.get('operating_system')})"
+            )
+        else:
+            logger.warning(
+                f"Docker Execution Sandbox Unavailable: {docker_diag.get('error')}. "
+                "FastAPI is running normally; code execution will return HTTP 503 until Docker Desktop is started."
+            )
+    except Exception as e:
+        logger.warning(f"Error diagnosing Docker during startup: {e}")
     yield
     # Shutdown
     logger.info("Backend Application shutting down.")
@@ -190,12 +205,29 @@ def health_check() -> dict[str, str]:
 @app.get("/api/health", tags=["Health"])
 def api_health_check() -> dict[str, Any]:
     """Global health verification endpoint for frontend and monitoring probes."""
+    from backend.app.execution.docker_runner import DockerRunner
+    docker_diag = DockerRunner.diagnose_docker()
+    is_docker_ok = docker_diag.get("docker_available", False)
+
     return {
-        "status": "healthy",
+        "status": "healthy" if is_docker_ok else "degraded",
         "service": settings.PROJECT_NAME,
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
+        "components": {
+            "fastapi": {"status": "healthy"},
+            "docker": docker_diag,
+        },
     }
+
+
+@app.get("/api/health/docker", tags=["Health"])
+def docker_health_check() -> JSONResponse:
+    """Dedicated Docker execution sandbox health check endpoint."""
+    from backend.app.execution.docker_runner import DockerRunner
+    docker_diag = DockerRunner.diagnose_docker()
+    status_code = status.HTTP_200_OK if docker_diag.get("docker_available") else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=docker_diag)
 
 
 # -------------------------------------------------------------

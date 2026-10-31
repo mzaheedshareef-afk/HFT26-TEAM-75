@@ -75,6 +75,19 @@ def require_authenticated_user(
 # Core Code Execution & Submission Endpoints
 # -------------------------------------------------------------------------
 
+@code_router.get(
+    "/health",
+    status_code=status.HTTP_200_OK,
+    summary="Check Docker sandbox health status",
+)
+def get_docker_health() -> JSONResponse:
+    """Returns status of the Docker execution sandbox environment."""
+    from backend.app.execution.docker_runner import DockerRunner
+    diag = DockerRunner.diagnose_docker()
+    code = status.HTTP_200_OK if diag.get("docker_available") else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=code, content=diag)
+
+
 @code_router.post(
     "/run",
     status_code=status.HTTP_200_OK,

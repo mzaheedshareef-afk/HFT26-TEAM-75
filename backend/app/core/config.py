@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     FEATHERLESS_MODEL: str = "meta-llama/Meta-Llama-3.1-70B-Instruct"
 
     # Docker Sandbox Configuration
+    DOCKER_HOST: Union[str, None] = None
     DOCKER_SANDBOX_IMAGE: str = "python:3.12-slim"
+    DOCKER_IMAGE_PYTHON: str = "python:3.12-slim"
+    DOCKER_IMAGE_CPP: str = "gcc:13-bookworm"
+    DOCKER_IMAGE_JAVA: str = "openjdk:17-slim"
     DOCKER_TIMEOUT_SECONDS: float = 2.0
     DOCKER_MEMORY_LIMIT_MB: int = 256
 

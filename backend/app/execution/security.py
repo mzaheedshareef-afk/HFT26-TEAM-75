@@ -56,11 +56,47 @@ class SecurityViolationError(ExecutionSecurityException):
 
 
 class DockerUnavailableError(ExecutionSecurityException):
-    def __init__(self, message: str = "Docker execution sandbox is currently unavailable."):
+    def __init__(self, message: str = "Docker execution sandbox is currently unavailable. Ensure the Docker daemon is running."):
         super().__init__(
             code="DOCKER_UNAVAILABLE",
             message=message,
             status_code=503,
+        )
+
+
+class DockerSdkMissingError(ExecutionSecurityException):
+    def __init__(self, message: str = "Python Docker SDK is not installed in the backend environment. Run 'pip install docker'."):
+        super().__init__(
+            code="DOCKER_SDK_MISSING",
+            message=message,
+            status_code=503,
+        )
+
+
+class ExecutionImageNotFoundError(ExecutionSecurityException):
+    def __init__(self, message: str = "Required sandbox Docker image is not available."):
+        super().__init__(
+            code="IMAGE_NOT_FOUND",
+            message=message,
+            status_code=503,
+        )
+
+
+class ContainerCreationError(ExecutionSecurityException):
+    def __init__(self, message: str = "Failed to create isolated execution container."):
+        super().__init__(
+            code="CONTAINER_CREATION_FAILED",
+            message=message,
+            status_code=500,
+        )
+
+
+class ContainerStartupError(ExecutionSecurityException):
+    def __init__(self, message: str = "Failed to start isolated execution container."):
+        super().__init__(
+            code="CONTAINER_STARTUP_FAILED",
+            message=message,
+            status_code=500,
         )
 
 
