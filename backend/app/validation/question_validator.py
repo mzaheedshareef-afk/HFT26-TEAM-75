@@ -1,15 +1,87 @@
+"""
+Comprehensive Zero-Trust Question & Task Validation Pipeline
+Enforces:
+- MCQ: Exactly 1 valid option from distinct choices, non-empty explanation, portfolio-aligned
+- MSQ: At least 2 valid options from distinct choices, non-empty explanation, portfolio-aligned
+- Coding:
+  - Test A: Reference solution execution and 100% test pass confirmation
+  - Test B: Starter code execution and confirmation of acceptance test failure (not pre-solved)
+  - Test C: Test suite quality, uniqueness, and edge case presence
+  - Test D: Security checks against dangerous calls, network sockets, and path traversal
+  - Strict DSA topic whitelist compliance against candidate portfolio
+Role: QA, Architecture & Security Lead
+Project: Portfolio-Driven Adaptive Coding & Technical Assessment Platform
+"""
+
 import ast
+from enum import Enum
 import logging
-from typing import Any, Dict, List, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.schemas.assessment import GeneratedAssessmentSchema, GeneratedQuestionSchema
+from backend.app.validation.dsa_whitelist import validate_question_dsa_whitelist
+from backend.app.validation.reference_validator import validate_reference_solution
+from backend.app.validation.test_validator import (
+    validate_starter_code_fails_tests,
+    validate_test_suite_quality,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class TaskValidationStatus(str, Enum):
+    GENERATED = "GENERATED"
+    VALIDATING = "VALIDATING"
+    VALIDATED = "VALIDATED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
 
 
 class QuestionValidationError(Exception):
     """Raised when generated question or assessment fails sanity/security checks."""
     pass
+
+
+FORBIDDEN_CALL_PATTERNS = [
+    r"\bos\.(system|popen|spawn|exec|remove|unlink|rmdir)\b",
+    r"\bsubprocess\.(run|Popen|call|check_output)\b",
+    r"\b(pty|commands)\b",
+    r"\bsocket\.(socket|connect|bind)\b",
+    r"\b(urllib\.request|requests|http\.client)\b",
+    r"\b(open\s*\(\s*['\"]/(etc|var|proc|sys|root|home|tmp/docker\.sock))",
+    r"\b(docker\.sock|/var/run/docker\.sock)\b",
+    r"\bctypes\b",
+]
+
+
+def validate_security_operations(code_str: str, label: str = "code") -> Tuple[bool, str]:
+    """
+    Test D: Static AST and regex inspection for dangerous operations.
+    Blocks subprocess, networking, shell execution, and unauthorized host filesystem traversal.
+    """
+    if not code_str:
+        return True, ""
+
+    for pat in FORBIDDEN_CALL_PATTERNS:
+        if re.search(pat, code_str, re.IGNORECASE):
+            return False, f"Forbidden security operation detected in {label}: matches pattern '{pat}'"
+
+    # AST check for imports
+    try:
+        tree = ast.parse(code_str)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("subprocess", "socket", "ctypes", "pty", "commands"):
+                        return False, f"Dangerous import '{alias.name}' detected in {label}."
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in ("subprocess", "socket", "ctypes", "pty", "commands"):
+                    return False, f"Dangerous import from '{node.module}' detected in {label}."
+    except SyntaxError:
+        pass  # Syntax validation handles this separately
+
+    return True, ""
 
 
 def validate_python_syntax(code_str: str, label: str = "code") -> Tuple[bool, str]:
@@ -23,53 +95,225 @@ def validate_python_syntax(code_str: str, label: str = "code") -> Tuple[bool, st
         return False, f"Syntax error in {label}: {err}"
 
 
-def validate_single_question(question: GeneratedQuestionSchema) -> List[str]:
+def validate_mcq_task(question: GeneratedQuestionSchema) -> Tuple[bool, List[str]]:
     """
-    Performs zero-trust verification on an individual generated question.
-    Returns a list of validation failure error strings (empty if valid).
+    Validates an MCQ question:
+    - 4 options by default (at least 2 distinct options required)
+    - All options have unique IDs and distinct texts
+    - Exactly 1 correct answer referencing a valid option ID
+    - Explanation is present and non-empty
+    """
+    errors: List[str] = []
+    if not question.options or len(question.options) < 2:
+        errors.append(f"MCQ '{question.question_id}' must have at least 2 options (has {len(question.options or [])}).")
+        return False, errors
+
+    option_ids = set()
+    option_texts = set()
+    for opt in question.options:
+        opt_id = opt.id.strip().upper() if hasattr(opt, "id") else str(opt.get("id", "")).strip().upper()
+        opt_text = opt.text.strip().lower() if hasattr(opt, "text") else str(opt.get("text", "")).strip().lower()
+
+        if not opt_id:
+            errors.append(f"MCQ '{question.question_id}' option missing ID.")
+        elif opt_id in option_ids:
+            errors.append(f"MCQ '{question.question_id}' has duplicate option ID '{opt_id}'.")
+        option_ids.add(opt_id)
+
+        if not opt_text:
+            errors.append(f"MCQ '{question.question_id}' option text is empty.")
+        elif opt_text in option_texts:
+            errors.append(f"MCQ '{question.question_id}' has duplicate option content.")
+        option_texts.add(opt_text)
+
+    # Exactly one correct answer
+    correct = str(question.correct_answer or "").strip().upper()
+    if not correct:
+        errors.append(f"MCQ '{question.question_id}' is missing a correct answer.")
+    elif correct not in option_ids:
+        errors.append(f"MCQ '{question.question_id}' correct answer '{correct}' not found in option IDs: {sorted(list(option_ids))}.")
+
+    if not question.explanation or len(question.explanation.strip()) < 10:
+        errors.append(f"MCQ '{question.question_id}' explanation is missing or too brief.")
+
+    return len(errors) == 0, errors
+
+
+def validate_msq_task(question: GeneratedQuestionSchema) -> Tuple[bool, List[str]]:
+    """
+    Validates an MSQ question:
+    - Multiple answer options (at least 3 options)
+    - All options distinct in ID and content
+    - At least two valid correct answers
+    - Every correct answer exists in options
+    - Explanation is present and non-empty
+    """
+    errors: List[str] = []
+    if not question.options or len(question.options) < 3:
+        errors.append(f"MSQ '{question.question_id}' must have at least 3 options (has {len(question.options or [])}).")
+        return False, errors
+
+    option_ids = set()
+    option_texts = set()
+    for opt in question.options:
+        opt_id = opt.id.strip().upper() if hasattr(opt, "id") else str(opt.get("id", "")).strip().upper()
+        opt_text = opt.text.strip().lower() if hasattr(opt, "text") else str(opt.get("text", "")).strip().lower()
+
+        if not opt_id:
+            errors.append(f"MSQ '{question.question_id}' option missing ID.")
+        elif opt_id in option_ids:
+            errors.append(f"MSQ '{question.question_id}' duplicate option ID '{opt_id}'.")
+        option_ids.add(opt_id)
+
+        if not opt_text:
+            errors.append(f"MSQ '{question.question_id}' option text is empty.")
+        elif opt_text in option_texts:
+            errors.append(f"MSQ '{question.question_id}' duplicate option content.")
+        option_texts.add(opt_text)
+
+    # At least two correct answers
+    correct_list = [str(ans).strip().upper() for ans in (question.correct_answers or []) if str(ans).strip()]
+    if len(correct_list) < 2:
+        errors.append(f"MSQ '{question.question_id}' must have at least 2 correct answers (found {len(correct_list)}).")
+    for ans in correct_list:
+        if ans not in option_ids:
+            errors.append(f"MSQ '{question.question_id}' correct answer '{ans}' not found in option IDs: {sorted(list(option_ids))}.")
+
+    if not question.explanation or len(question.explanation.strip()) < 10:
+        errors.append(f"MSQ '{question.question_id}' explanation is missing or too brief.")
+
+    return len(errors) == 0, errors
+
+
+def validate_single_task(
+    question: GeneratedQuestionSchema,
+    claimed_dsa_topics: Optional[List[str]] = None,
+    language: str = "python",
+) -> Dict[str, Any]:
+    """
+    Comprehensive Zero-Trust Pipeline for an individual task (MCQ, MSQ, or Coding):
+    1. Schema & Content Validation
+    2. Branching on Question Type:
+       - MCQ: validate_mcq_task
+       - MSQ: validate_msq_task
+       - Coding: Tests A, B, C, D and DSA Whitelist
     """
     errors: List[str] = []
 
-    # 1. Content checks
+    # 1. Base content checks
     if not question.title or len(question.title.strip()) < 3:
         errors.append(f"Question '{question.question_id}' title is too short or missing.")
     if not question.description or len(question.description.strip()) < 15:
         errors.append(f"Question '{question.question_id}' description lacks detail.")
 
-    # 2. Example / public test case checks
-    examples = question.examples or question.public_test_cases or []
-    if len(examples) == 0:
-        errors.append(f"Question '{question.question_id}' must provide at least 1 public test example.")
-    for idx, ex in enumerate(examples):
-        if not isinstance(ex, dict) or "input" not in ex or "expected_output" not in ex:
-            errors.append(f"Question '{question.question_id}' example {idx + 1} is missing input or expected_output.")
+    q_type = getattr(question, "question_type", "coding")
 
-    # 3. Starter code syntax validation
-    if question.starter_code and isinstance(question.starter_code, dict):
-        python_starter = question.starter_code.get("python")
-        if python_starter:
-            is_valid, msg = validate_python_syntax(python_starter, "starter_code['python']")
-            if not is_valid:
-                errors.append(f"Question '{question.question_id}': {msg}")
+    if q_type == "mcq":
+        mcq_ok, mcq_errs = validate_mcq_task(question)
+        if not mcq_ok:
+            errors.extend(mcq_errs)
+        final_status = TaskValidationStatus.VALIDATED if len(errors) == 0 else TaskValidationStatus.REJECTED
+        return {
+            "question_id": question.question_id,
+            "title": question.title,
+            "question_type": "mcq",
+            "status": final_status.value,
+            "is_valid": (len(errors) == 0),
+            "errors": errors,
+        }
 
-    # 4. Reference solution syntax validation (if present)
+    elif q_type == "msq":
+        msq_ok, msq_errs = validate_msq_task(question)
+        if not msq_ok:
+            errors.extend(msq_errs)
+        final_status = TaskValidationStatus.VALIDATED if len(errors) == 0 else TaskValidationStatus.REJECTED
+        return {
+            "question_id": question.question_id,
+            "title": question.title,
+            "question_type": "msq",
+            "status": final_status.value,
+            "is_valid": (len(errors) == 0),
+            "errors": errors,
+        }
+
+    # -------------------------------------------------------------
+    # Coding Task Validation Pipeline (Tests A, B, C, D + DSA Whitelist)
+    # -------------------------------------------------------------
+    starter_dict = question.starter_code or {}
+    py_starter = starter_dict.get("python") or starter_dict.get(language)
+    if py_starter:
+        is_valid, msg = validate_python_syntax(py_starter, "starter_code")
+        if not is_valid:
+            errors.append(f"Question '{question.question_id}': {msg}")
+
     if question.reference_solution:
         is_valid, msg = validate_python_syntax(question.reference_solution, "reference_solution")
         if not is_valid:
             errors.append(f"Question '{question.question_id}': {msg}")
 
-    # 5. Hidden test cases check
-    if question.hidden_test_cases:
-        for idx, htc in enumerate(question.hidden_test_cases):
-            if not isinstance(htc, dict) or "input" not in htc or "expected_output" not in htc:
-                errors.append(f"Question '{question.question_id}' hidden test case {idx + 1} is malformed.")
+    # Test D: Security Checks
+    if py_starter:
+        sec_ok, sec_msg = validate_security_operations(py_starter, "starter_code")
+        if not sec_ok:
+            errors.append(f"Question '{question.question_id}': {sec_msg}")
 
-    return errors
+    if question.reference_solution:
+        sec_ok, sec_msg = validate_security_operations(question.reference_solution, "reference_solution")
+        if not sec_ok:
+            errors.append(f"Question '{question.question_id}': {sec_msg}")
+
+    # Strict DSA Whitelist Verification
+    if claimed_dsa_topics is not None:
+        dsa_ok, dsa_violations = validate_question_dsa_whitelist(
+            title=question.title,
+            description=question.description,
+            topic=question.target_skill or question.topic,
+            domain=question.domain,
+            claimed_dsa_topics=claimed_dsa_topics,
+        )
+        if not dsa_ok:
+            errors.extend([f"Question '{question.question_id}': {v}" for v in dsa_violations])
+
+    # Test C: Test Suite Quality
+    test_ok, test_violations = validate_test_suite_quality(question)
+    if not test_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in test_violations])
+
+    # Test A: Reference Solution Validation
+    ref_ok, ref_violations = validate_reference_solution(question, language)
+    if not ref_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in ref_violations])
+
+    # Test B: Starter Code Validation
+    starter_ok, starter_violations = validate_starter_code_fails_tests(question, language)
+    if not starter_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in starter_violations])
+
+    final_status = TaskValidationStatus.VALIDATED if len(errors) == 0 else TaskValidationStatus.REJECTED
+
+    return {
+        "question_id": question.question_id,
+        "title": question.title,
+        "question_type": "coding",
+        "status": final_status.value,
+        "is_valid": (len(errors) == 0),
+        "test_a_reference_passed": ref_ok,
+        "test_b_starter_fails_passed": starter_ok,
+        "test_c_quality_passed": test_ok,
+        "test_d_security_passed": (len([e for e in errors if "Forbidden security operation" in e or "Dangerous import" in e]) == 0),
+        "dsa_whitelist_passed": (len([e for e in errors if "un-claimed topic" in e]) == 0),
+        "errors": errors,
+    }
 
 
-def validate_generated_assessment(assessment: GeneratedAssessmentSchema) -> None:
+def validate_generated_assessment(
+    assessment: GeneratedAssessmentSchema,
+    claimed_dsa_topics: Optional[List[str]] = None,
+    language: str = "python",
+) -> None:
     """
     Performs comprehensive zero-trust validation on an entire generated assessment.
+    Rejects the assessment if any task fails validation.
     Raises QuestionValidationError if any requirement is violated.
     """
     if not assessment.questions or len(assessment.questions) < 1:
@@ -84,8 +328,13 @@ def validate_generated_assessment(assessment: GeneratedAssessmentSchema) -> None
             q.question_id = f"q{idx + 1}"
         seen_ids.add(q.question_id)
 
-        q_errors = validate_single_question(q)
-        all_errors.extend(q_errors)
+        task_validation = validate_single_task(
+            question=q,
+            claimed_dsa_topics=claimed_dsa_topics,
+            language=language,
+        )
+        if not task_validation["is_valid"]:
+            all_errors.extend(task_validation["errors"])
 
     if all_errors:
         error_msg = "; ".join(all_errors)
@@ -97,8 +346,8 @@ def sanitize_assessment_for_candidate(
     assessment_dict: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Strictly removes all hidden test cases and reference solutions from assessment
-    and individual question dicts before sending across the wire to the candidate.
+    Strictly removes all hidden test cases, reference solutions, MCQ/MSQ correct answer keys,
+    and explanations from assessment and individual question dicts before sending to candidate.
     """
     sanitized = dict(assessment_dict)
     if "questions" in sanitized and isinstance(sanitized["questions"], list):
@@ -108,6 +357,9 @@ def sanitize_assessment_for_candidate(
                 clean_q = dict(q)
                 clean_q.pop("hidden_test_cases", None)
                 clean_q.pop("reference_solution", None)
+                clean_q.pop("correct_answer", None)
+                clean_q.pop("correct_answers", None)
+                clean_q.pop("explanation", None)
                 clean_questions.append(clean_q)
             else:
                 clean_questions.append(q)
@@ -116,4 +368,5 @@ def sanitize_assessment_for_candidate(
     # Strip any stray root secrets
     sanitized.pop("reference_solutions", None)
     sanitized.pop("hidden_tests", None)
+    sanitized.pop("answer_keys", None)
     return sanitized

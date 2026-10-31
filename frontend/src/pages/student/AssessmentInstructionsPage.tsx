@@ -8,6 +8,7 @@ import {
   FileQuestion,
   HardDrive,
   Languages,
+  ListChecks,
   ShieldCheck,
   Terminal,
   Timer,
@@ -32,10 +33,10 @@ const LANGUAGE_DISPLAY_NAMES: Record<SupportedLanguage, string> = {
 
 const DEFAULT_LANGUAGES: SupportedLanguage[] = [
   'python',
-  'typescript',
-  'javascript',
   'java',
   'cpp',
+  'typescript',
+  'javascript',
 ];
 
 const environmentSpecs = [
@@ -59,9 +60,9 @@ const environmentSpecs = [
   },
   {
     icon: Cpu,
-    label: 'Dual Evaluation',
-    value: 'Deterministic + AI Efficiency',
-    detail: 'Weighted hidden test cases plus Big-O optimality & cleanliness.',
+    label: 'Deterministic Multi-Format Grading',
+    value: 'MCQ + MSQ + Code Sandbox',
+    detail: 'Exact match evaluation on multiple choices plus weighted hidden test cases.',
   },
 ];
 
@@ -104,7 +105,7 @@ export function AssessmentInstructionsPage() {
           setPreviewSession(fetched);
         }
       } catch {
-        // Keep static pre-assessment specifications visible if backend is offline before start
+        // Keep static briefing visible if offline
       }
     }
 
@@ -122,7 +123,12 @@ export function AssessmentInstructionsPage() {
   const questionCount =
     previewSession && previewSession.questions.length > 0
       ? previewSession.questions.length
-      : 3;
+      : 6;
+
+  const mcqCount = previewSession?.mcq_count ?? previewSession?.questions.filter((q) => q.question_type === 'mcq').length ?? 3;
+  const msqCount = previewSession?.msq_count ?? previewSession?.questions.filter((q) => q.question_type === 'msq').length ?? 2;
+  const codingCount = previewSession?.coding_count ?? previewSession?.questions.filter((q) => q.question_type === 'coding').length ?? 1;
+
   const allowedLanguages =
     previewSession && previewSession.allowed_languages.length > 0
       ? previewSession.allowed_languages
@@ -167,10 +173,10 @@ export function AssessmentInstructionsPage() {
             <span>Pre-Assessment Briefing</span>
           </span>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            {previewSession?.title || 'Adaptive Coding Assessment Instructions'}
+            {previewSession?.title || 'Dynamic Multi-Format Technical Assessment'}
           </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Review the total duration, question count, allowed programming languages, timer mechanics, and assessment rules before confirming start.
+            Review the assessment format, round breakdowns, allowed programming languages, timer mechanics, and rules before confirming start.
           </p>
         </div>
 
@@ -183,7 +189,7 @@ export function AssessmentInstructionsPage() {
           />
         )}
 
-        {/* Assessment Overview Strip: Total Duration, Number of Questions, Allowed Languages */}
+        {/* Assessment Overview Strip */}
         <section
           aria-label="Assessment overview metrics"
           className="grid gap-4 sm:grid-cols-3"
@@ -197,7 +203,7 @@ export function AssessmentInstructionsPage() {
               {durationMinutes} Minutes
             </p>
             <p className="text-xs text-slate-500">
-              Continuous timed coding window
+              Continuous timed examination window
             </p>
           </div>
 
@@ -207,14 +213,13 @@ export function AssessmentInstructionsPage() {
                 className="h-4 w-4 text-blue-600"
                 aria-hidden="true"
               />
-              <span>Number of Questions</span>
+              <span>Assessment Rounds</span>
             </div>
             <p className="text-xl font-bold text-slate-900 tabular-nums">
-              {questionCount}{' '}
-              {questionCount === 1 ? 'Coding Question' : 'Coding Questions'}
+              {questionCount}{' '}{questionCount === 1 ? 'Coding Question' : 'Coding Questions'}
             </p>
             <p className="text-xs text-slate-500">
-              Portfolio-calibrated difficulty{previewSession?.difficulty ? ` (${previewSession.difficulty})` : ''}
+              {mcqCount} MCQ + {msqCount} MSQ + {codingCount} Coding Challenge
             </p>
           </div>
 
@@ -224,7 +229,7 @@ export function AssessmentInstructionsPage() {
                 className="h-4 w-4 text-blue-600"
                 aria-hidden="true"
               />
-              <span>Allowed Programming Languages</span>
+              <span>Coding Round Languages</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {allowedLanguages.map((lang) => (
@@ -239,14 +244,74 @@ export function AssessmentInstructionsPage() {
           </div>
         </section>
 
+        {/* 3 Examination Rounds Breakdown */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
+          <div className="flex items-center gap-2 text-slate-900">
+            <ListChecks className="w-5 h-5 text-blue-600" />
+            <h2 className="text-base font-bold">Assessment Structure &amp; Scoring Matrix</h2>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-800">
+                  Round 1: MCQ
+                </span>
+                <span className="text-xs font-semibold bg-blue-200/80 text-blue-900 px-2 py-0.5 rounded-full">
+                  2 Marks / Q
+                </span>
+              </div>
+              <p className="text-sm font-bold text-slate-900">
+                Single Choice Questions ({mcqCount})
+              </p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Evaluates theoretical foundations and concept precision. Exactly one correct answer among 4 choices.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-purple-800">
+                  Round 2: MSQ
+                </span>
+                <span className="text-xs font-semibold bg-purple-200/80 text-purple-900 px-2 py-0.5 rounded-full">
+                  3 Marks / Q
+                </span>
+              </div>
+              <p className="text-sm font-bold text-slate-900">
+                Multiple Select Questions ({msqCount})
+              </p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Evaluates deep architectural and edge-case grasp. Select all matching options. Exact match scoring applies.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                  Round 3: Coding
+                </span>
+                <span className="text-xs font-semibold bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full">
+                  10 Marks / Q
+                </span>
+              </div>
+              <p className="text-sm font-bold text-slate-900">
+                Coding Round ({codingCount})
+              </p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Full algorithmic implementation calibrated to your portfolio tech stack with isolated sandbox execution.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* Timer Information Card */}
         <section className="rounded-xl border border-blue-200/80 bg-blue-50/40 p-5 sm:p-6 space-y-2.5">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Timer className="h-4 w-4 text-blue-600" aria-hidden="true" />
-            <h2>Timer Information</h2>
+            <h2>Timer Information &amp; Free Navigation</h2>
           </div>
           <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-            The {durationMinutes}-minute countdown timer begins immediately once you confirm and start the assessment. You may navigate freely across all {questionCount} questions while time remains. An amber alert triggers when 5 minutes remain, and code execution automatically locks when the timer reaches <span className="font-mono font-semibold">00:00</span>.
+            The {durationMinutes}-minute countdown begins when you confirm start. You may navigate freely back and forth across all {questionCount} questions in any order. Your chosen options and code drafts are auto-saved. Inputs lock when time expires.
           </p>
         </section>
 
@@ -288,20 +353,20 @@ export function AssessmentInstructionsPage() {
             </h2>
             <ul className="list-disc pl-5 space-y-2 text-sm text-slate-600 leading-relaxed">
               <li>
+                <strong className="text-slate-800">Multi-Format Balance:</strong>{' '}
+                Total score is the weighted composite of your MCQ, MSQ, and Coding Round achievements.
+              </li>
+              <li>
                 <strong className="text-slate-800">Stdin / Stdout I/O:</strong>{' '}
-                Read problem inputs from standard input (<code className="font-mono text-xs">stdin</code>) and print exact answers to standard output (<code className="font-mono text-xs">stdout</code>). Trailing whitespace and line endings are normalized automatically.
+                For the coding round, read inputs from standard input (<code className="font-mono text-xs">stdin</code>) and print exact answers to standard output (<code className="font-mono text-xs">stdout</code>).
               </li>
               <li>
-                <strong className="text-slate-800">Public vs. Hidden Tests:</strong>{' '}
-                You can run public sample cases freely via <strong>Run Code</strong> to verify formatting. Final grading executes weighted hidden edge cases via <strong>Submit Answer</strong>.
+                <strong className="text-slate-800">Guarded AI Progressive Hints:</strong>{' '}
+                Up to 3 conceptual hints per coding challenge are available. The tutor never exposes full code.
               </li>
               <li>
-                <strong className="text-slate-800">Guarded AI Hints:</strong>{' '}
-                Up to 3 progressive conceptual hints are available per question. Hint usage is logged on your results report, and the AI tutor never reveals complete code solutions.
-              </li>
-              <li>
-                <strong className="text-slate-800">Algorithmic Efficiency &amp; Integrity:</strong>{' '}
-                All code must be authored independently during the active session. Static analysis and AI review evaluate Big-O time complexity, space complexity, and cleanliness.
+                <strong className="text-slate-800">Confidentiality:</strong>{' '}
+                Answer keys and explanations remain confidential until your final assessment submission is completed.
               </li>
             </ul>
           </div>
@@ -320,7 +385,7 @@ export function AssessmentInstructionsPage() {
                 className="mt-0.5 h-4 w-4 rounded accent-blue-600"
               />
               <span>
-                I understand the {durationMinutes}-minute timer rules, sandbox resource limits (2,000 ms timeout, 256 MB memory, offline execution), and stdin/stdout requirements.
+                I understand the {durationMinutes}-minute timer rules, multi-round format (MCQ, MSQ, Coding), and sandbox resource limits.
               </span>
             </label>
 
@@ -332,7 +397,7 @@ export function AssessmentInstructionsPage() {
                 className="mt-0.5 h-4 w-4 rounded accent-blue-600"
               />
               <span>
-                I confirm that all submitted code will be my own original work written during this assessment session.
+                I confirm that all answers and code submitted will be my own original work completed during this active session.
               </span>
             </label>
           </div>

@@ -187,6 +187,17 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/health", tags=["Health"])
+def api_health_check() -> dict[str, Any]:
+    """Global health verification endpoint for frontend and monitoring probes."""
+    return {
+        "status": "healthy",
+        "service": settings.PROJECT_NAME,
+        "version": "1.0.0",
+        "environment": settings.ENVIRONMENT,
+    }
+
+
 # -------------------------------------------------------------
 # Include Routers
 # -------------------------------------------------------------

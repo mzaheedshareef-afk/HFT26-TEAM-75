@@ -12,6 +12,13 @@ export type AssessmentLifecycleStatus =
   | 'completed'
   | 'expired';
 
+export type QuestionType = 'mcq' | 'msq' | 'coding';
+
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
 export type SupportedLanguage =
   | 'python'
   | 'java'
@@ -66,6 +73,11 @@ export interface CodingQuestion {
   output_format: string;
   constraints: QuestionConstraints;
   public_test_cases: PublicTestCase[];
+  question_type?: QuestionType;
+  options?: QuestionOption[];
+  marks?: number;
+  portfolio_skill_reference?: string;
+  topic?: string;
   total_test_cases_count?: number;
   hidden_test_cases_count?: number;
   starter_code?: Partial<Record<SupportedLanguage, string>>;
@@ -111,6 +123,25 @@ export interface EfficiencyAnalysis {
   feedback: string;
 }
 
+export interface EvaluatedQuestionSummary {
+  question_id: string;
+  title: string;
+  question_type: QuestionType;
+  topic: string;
+  description?: string;
+  portfolio_skill_reference?: string;
+  marks_possible: number;
+  marks_earned: number;
+  is_correct: boolean;
+  explanation?: string;
+  selected_option?: string;
+  correct_answer?: string;
+  selected_options?: string[];
+  correct_answers?: string[];
+  options?: QuestionOption[];
+  submission_score?: number;
+}
+
 export interface ScoreSummary {
   submission_id: string;
   assessment_id?: string;
@@ -120,6 +151,13 @@ export interface ScoreSummary {
   deterministic_score: number; // 0 - 100 weighted hidden/public test score
   coding_score?: number;
   overall_score: number; // 0 - 100 composite score
+  mcq_score?: number;
+  mcq_max?: number;
+  msq_score?: number;
+  msq_max?: number;
+  coding_max?: number;
+  percentage?: number;
+  questions?: EvaluatedQuestionSummary[];
   /**
    * Official AI efficiency score returned by the backend.
    * Never calculated in the frontend.
@@ -143,6 +181,15 @@ export interface ActiveAssessmentSession {
   started_at?: string;
   allowed_languages: SupportedLanguage[];
   questions: CodingQuestion[];
+  mcq_count?: number;
+  msq_count?: number;
+  coding_count?: number;
+  saved_answers?: Record<string, {
+    selected_option?: string;
+    selected_options?: string[];
+    source_code?: string;
+    language?: string;
+  }>;
   calibrated_stack?: string[];
   difficulty?: AssessmentDifficultyLabel;
   status?: AssessmentLifecycleStatus;
@@ -228,6 +275,13 @@ export interface AssessmentResultDetail {
   final_score: number;
   deterministic_score?: number;
   coding_score?: number;
+  mcq_score?: number;
+  mcq_max?: number;
+  msq_score?: number;
+  msq_max?: number;
+  coding_max?: number;
+  percentage?: number;
+  evaluated_questions?: EvaluatedQuestionSummary[];
   /**
    * Official AI efficiency score returned by the backend.
    * Never calculated in the frontend.
@@ -265,6 +319,15 @@ export interface AssessmentDetail {
   total_time_limit_minutes: number;
   question_count: number;
   questions: CodingQuestion[];
+  mcq_count?: number;
+  msq_count?: number;
+  coding_count?: number;
+  saved_answers?: Record<string, {
+    selected_option?: string;
+    selected_options?: string[];
+    source_code?: string;
+    language?: string;
+  }>;
   created_at: string;
   completed_at?: string;
 }
