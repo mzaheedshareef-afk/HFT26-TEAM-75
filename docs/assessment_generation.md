@@ -120,3 +120,4 @@ If the external Featherless AI API is unreachable or times out, the platform sea
 - Generates 100% deterministic, valid, grounded questions based on the candidate's verified languages and claimed DSA topics.
 - Subject to the identical four-part validation pipeline (Tests A–D).
 - Guarantees zero downtime during live hackathon demonstrations or recruiter assessments.
+

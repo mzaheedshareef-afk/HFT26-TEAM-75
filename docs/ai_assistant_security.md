@@ -77,3 +77,4 @@ Even if the underlying LLM attempts to generate a complete answer, VERITY applie
 - Blocks code blocks containing complete function declarations with working return statements.
 - Redacts references to hidden test cases or expected test outputs.
 - Enforces an upper token threshold to prevent exhaustive code generation.
+

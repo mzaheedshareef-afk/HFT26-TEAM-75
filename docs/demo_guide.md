@@ -82,3 +82,4 @@ python -m pytest tests/test_hackathon_scenarios.py -v
 # 3. Verify clean frontend build
 npm --prefix frontend run build
 ```
+

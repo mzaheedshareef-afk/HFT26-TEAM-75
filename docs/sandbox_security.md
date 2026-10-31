@@ -82,3 +82,4 @@ cmd = [
 
 - If execution exceeds `time_limit_seconds` (default: 2.0s, max: 10.0s), the subprocess is terminated, `docker rm -f` is invoked, and verdict `TIME_LIMIT_EXCEEDED` (TLE) is recorded.
 - If memory exceeds 256MB, the container process receives an out-of-memory signal (exit code 137), producing verdict `MEMORY_LIMIT_EXCEEDED` (MLE).
+

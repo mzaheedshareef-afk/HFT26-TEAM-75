@@ -63,3 +63,4 @@ class TestFallbackSynthesizer:
         assert assessment.duration_minutes == 60
         # Question 1 must be grounded in claimed topics
         assert assessment.questions[0].target_skill in ("Arrays", "Strings")
+
