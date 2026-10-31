@@ -1,15 +1,84 @@
+"""
+Comprehensive Zero-Trust Question & Task Validation Pipeline
+Enforces:
+- Test A: Reference solution execution and 100% test pass confirmation
+- Test B: Starter code execution and confirmation of acceptance test failure (not pre-solved)
+- Test C: Test suite quality, uniqueness, and edge case presence
+- Test D: Security checks against dangerous calls, network sockets, and path traversal
+- Strict DSA topic whitelist compliance against candidate portfolio
+Role: QA, Architecture & Security Lead
+Project: Portfolio-Driven Adaptive Coding & Technical Assessment Platform
+"""
+
 import ast
+from enum import Enum
 import logging
-from typing import Any, Dict, List, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.schemas.assessment import GeneratedAssessmentSchema, GeneratedQuestionSchema
+from backend.app.validation.dsa_whitelist import validate_question_dsa_whitelist
+from backend.app.validation.reference_validator import validate_reference_solution
+from backend.app.validation.test_validator import (
+    validate_starter_code_fails_tests,
+    validate_test_suite_quality,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class TaskValidationStatus(str, Enum):
+    GENERATED = "GENERATED"
+    VALIDATING = "VALIDATING"
+    VALIDATED = "VALIDATED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
 
 
 class QuestionValidationError(Exception):
     """Raised when generated question or assessment fails sanity/security checks."""
     pass
+
+
+FORBIDDEN_CALL_PATTERNS = [
+    r"\bos\.(system|popen|spawn|exec|remove|unlink|rmdir)\b",
+    r"\bsubprocess\.(run|Popen|call|check_output)\b",
+    r"\b(pty|commands)\b",
+    r"\bsocket\.(socket|connect|bind)\b",
+    r"\b(urllib\.request|requests|http\.client)\b",
+    r"\b(open\s*\(\s*['\"]/(etc|var|proc|sys|root|home|tmp/docker\.sock))",
+    r"\b(docker\.sock|/var/run/docker\.sock)\b",
+    r"\bctypes\b",
+]
+
+
+def validate_security_operations(code_str: str, label: str = "code") -> Tuple[bool, str]:
+    """
+    Test D: Static AST and regex inspection for dangerous operations.
+    Blocks subprocess, networking, shell execution, and unauthorized host filesystem traversal.
+    """
+    if not code_str:
+        return True, ""
+
+    for pat in FORBIDDEN_CALL_PATTERNS:
+        if re.search(pat, code_str, re.IGNORECASE):
+            return False, f"Forbidden security operation detected in {label}: matches pattern '{pat}'"
+
+    # AST check for imports
+    try:
+        tree = ast.parse(code_str)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("subprocess", "socket", "ctypes", "pty", "commands"):
+                        return False, f"Dangerous import '{alias.name}' detected in {label}."
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in ("subprocess", "socket", "ctypes", "pty", "commands"):
+                    return False, f"Dangerous import from '{node.module}' detected in {label}."
+    except SyntaxError:
+        pass  # Syntax validation handles this separately
+
+    return True, ""
 
 
 def validate_python_syntax(code_str: str, label: str = "code") -> Tuple[bool, str]:
@@ -23,12 +92,22 @@ def validate_python_syntax(code_str: str, label: str = "code") -> Tuple[bool, st
         return False, f"Syntax error in {label}: {err}"
 
 
-def validate_single_question(question: GeneratedQuestionSchema) -> List[str]:
+def validate_single_task(
+    question: GeneratedQuestionSchema,
+    claimed_dsa_topics: Optional[List[str]] = None,
+    language: str = "python",
+) -> Dict[str, Any]:
     """
-    Performs zero-trust verification on an individual generated question.
-    Returns a list of validation failure error strings (empty if valid).
+    Comprehensive Zero-Trust Pipeline for an individual coding task:
+    1. Schema & Content Validation
+    2. Test D: Security Checks on starter code & reference solution
+    3. Strict DSA Whitelist Validation
+    4. Test C: Test suite quality & uniqueness
+    5. Test A: Reference solution execution verification
+    6. Test B: Starter code failure verification (must fail acceptance tests)
     """
     errors: List[str] = []
+    status = TaskValidationStatus.VALIDATING
 
     # 1. Content checks
     if not question.title or len(question.title.strip()) < 3:
@@ -36,40 +115,81 @@ def validate_single_question(question: GeneratedQuestionSchema) -> List[str]:
     if not question.description or len(question.description.strip()) < 15:
         errors.append(f"Question '{question.question_id}' description lacks detail.")
 
-    # 2. Example / public test case checks
-    examples = question.examples or question.public_test_cases or []
-    if len(examples) == 0:
-        errors.append(f"Question '{question.question_id}' must provide at least 1 public test example.")
-    for idx, ex in enumerate(examples):
-        if not isinstance(ex, dict) or "input" not in ex or "expected_output" not in ex:
-            errors.append(f"Question '{question.question_id}' example {idx + 1} is missing input or expected_output.")
+    # 2. Syntax validation
+    starter_dict = question.starter_code or {}
+    py_starter = starter_dict.get("python") or starter_dict.get(language)
+    if py_starter:
+        is_valid, msg = validate_python_syntax(py_starter, "starter_code")
+        if not is_valid:
+            errors.append(f"Question '{question.question_id}': {msg}")
 
-    # 3. Starter code syntax validation
-    if question.starter_code and isinstance(question.starter_code, dict):
-        python_starter = question.starter_code.get("python")
-        if python_starter:
-            is_valid, msg = validate_python_syntax(python_starter, "starter_code['python']")
-            if not is_valid:
-                errors.append(f"Question '{question.question_id}': {msg}")
-
-    # 4. Reference solution syntax validation (if present)
     if question.reference_solution:
         is_valid, msg = validate_python_syntax(question.reference_solution, "reference_solution")
         if not is_valid:
             errors.append(f"Question '{question.question_id}': {msg}")
 
-    # 5. Hidden test cases check
-    if question.hidden_test_cases:
-        for idx, htc in enumerate(question.hidden_test_cases):
-            if not isinstance(htc, dict) or "input" not in htc or "expected_output" not in htc:
-                errors.append(f"Question '{question.question_id}' hidden test case {idx + 1} is malformed.")
+    # 3. Test D: Security Checks
+    if py_starter:
+        sec_ok, sec_msg = validate_security_operations(py_starter, "starter_code")
+        if not sec_ok:
+            errors.append(f"Question '{question.question_id}': {sec_msg}")
 
-    return errors
+    if question.reference_solution:
+        sec_ok, sec_msg = validate_security_operations(question.reference_solution, "reference_solution")
+        if not sec_ok:
+            errors.append(f"Question '{question.question_id}': {sec_msg}")
+
+    # 4. Strict DSA Whitelist Verification
+    if claimed_dsa_topics is not None:
+        dsa_ok, dsa_violations = validate_question_dsa_whitelist(
+            title=question.title,
+            description=question.description,
+            topic=question.target_skill or question.topic,
+            domain=question.domain,
+            claimed_dsa_topics=claimed_dsa_topics,
+        )
+        if not dsa_ok:
+            errors.extend([f"Question '{question.question_id}': {v}" for v in dsa_violations])
+
+    # 5. Test C: Test Suite Quality
+    test_ok, test_violations = validate_test_suite_quality(question)
+    if not test_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in test_violations])
+
+    # 6. Test A: Reference Solution Validation
+    ref_ok, ref_violations = validate_reference_solution(question, language)
+    if not ref_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in ref_violations])
+
+    # 7. Test B: Starter Code Validation
+    starter_ok, starter_violations = validate_starter_code_fails_tests(question, language)
+    if not starter_ok:
+        errors.extend([f"Question '{question.question_id}': {v}" for v in starter_violations])
+
+    final_status = TaskValidationStatus.VALIDATED if len(errors) == 0 else TaskValidationStatus.REJECTED
+
+    return {
+        "question_id": question.question_id,
+        "title": question.title,
+        "status": final_status.value,
+        "is_valid": (len(errors) == 0),
+        "test_a_reference_passed": ref_ok,
+        "test_b_starter_fails_passed": starter_ok,
+        "test_c_quality_passed": test_ok,
+        "test_d_security_passed": (len([e for e in errors if "Forbidden security operation" in e or "Dangerous import" in e]) == 0),
+        "dsa_whitelist_passed": (len([e for e in errors if "un-claimed topic" in e]) == 0),
+        "errors": errors,
+    }
 
 
-def validate_generated_assessment(assessment: GeneratedAssessmentSchema) -> None:
+def validate_generated_assessment(
+    assessment: GeneratedAssessmentSchema,
+    claimed_dsa_topics: Optional[List[str]] = None,
+    language: str = "python",
+) -> None:
     """
     Performs comprehensive zero-trust validation on an entire generated assessment.
+    Rejects the assessment if any task fails Test A, Test B, Test C, Test D, or DSA Whitelist.
     Raises QuestionValidationError if any requirement is violated.
     """
     if not assessment.questions or len(assessment.questions) < 1:
@@ -84,8 +204,13 @@ def validate_generated_assessment(assessment: GeneratedAssessmentSchema) -> None
             q.question_id = f"q{idx + 1}"
         seen_ids.add(q.question_id)
 
-        q_errors = validate_single_question(q)
-        all_errors.extend(q_errors)
+        task_validation = validate_single_task(
+            question=q,
+            claimed_dsa_topics=claimed_dsa_topics,
+            language=language,
+        )
+        if not task_validation["is_valid"]:
+            all_errors.extend(task_validation["errors"])
 
     if all_errors:
         error_msg = "; ".join(all_errors)

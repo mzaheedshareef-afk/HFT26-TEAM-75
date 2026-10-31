@@ -15,6 +15,7 @@ from backend.app.grading.grading_engine import (
     _assessment_results_memory_store,
     _submissions_memory_store,
 )
+from backend.app.services.portfolio_service import PortfolioService
 from backend.app.services.assessment_service import (
     AssessmentService,
     _assessment_memory_store,
@@ -412,11 +413,32 @@ class AnalyticsService:
             if latest_by_q:
                 coding_score = sum(latest_by_q.values()) / max(1, len(latest_by_q))
 
+        tier = str(assessment.get("difficulty") or "medium").lower()
+
         eff_eval = AIEfficiencyScorer.calculate_efficiency_score(
             coding_score=coding_score,
             hint_interactions=hints,
             questions=q_list,
             submissions=assess_subs,
+            tier=tier,
+        )
+
+        # Retrieve portfolio for candidate to cross-reference claimed vs demonstrated skills
+        portfolio = PortfolioService.get_portfolio_for_user(client, user_id) or {}
+        claimed_skills = (
+            portfolio.get("skills")
+            or portfolio.get("technical_skills")
+            or portfolio.get("primary_languages")
+            or []
+        )
+        if isinstance(claimed_skills, str):
+            claimed_skills = [s.strip() for s in claimed_skills.split(",") if s.strip()]
+
+        domain = (
+            portfolio.get("preferred_domain")
+            or (assessment.get("metadata") or {}).get("preferred_domain")
+            or assessment.get("target_role")
+            or "Full Stack"
         )
 
         # Question performance breakdown
@@ -424,11 +446,16 @@ class AnalyticsService:
         questions_passed = 0
         total_correct = 0
         total_failed = 0
+        assessed_skills: List[str] = []
+        demonstrated_skills: List[str] = []
 
         for idx, q in enumerate(q_list, 1):
             qid = str(q.get("id") or q.get("question_id", f"q-{idx}"))
             title = str(q.get("title", f"Question {idx}"))
             diff = str(q.get("difficulty", "medium"))
+            target_skill = str(q.get("target_skill") or q.get("category") or "Algorithms")
+            assessed_skills.append(target_skill)
+
             q_subs = [s for s in assess_subs if str(s.get("question_id")) == qid]
             q_hints = [h for h in hints if str(h.get("question_id")) == qid]
 
@@ -438,27 +465,52 @@ class AnalyticsService:
             passed = score >= 80.0
             if passed:
                 questions_passed += 1
+                demonstrated_skills.append(target_skill)
 
             p_tests = int(best_sub.get("passed_tests", 0)) if best_sub else 0
             f_tests = int(best_sub.get("failed_tests", 0)) if best_sub else 0
             total_correct += p_tests
             total_failed += f_tests
+            total_q_tests = p_tests + f_tests
+            pass_percentage = round((p_tests / max(1, total_q_tests)) * 100.0, 1) if total_q_tests > 0 else 0.0
 
             question_performance.append({
                 "question_id": qid,
                 "title": title,
                 "difficulty": diff,
+                "domain": q.get("domain") or domain,
+                "dsa_topic": target_skill,
                 "score": score,
                 "verdict": verdict,
                 "passed": passed,
                 "passed_tests": p_tests,
                 "failed_tests": f_tests,
-                "total_tests": p_tests + f_tests,
+                "total_tests": total_q_tests,
+                "pass_percentage": pass_percentage,
+                "submission_attempts": len(q_subs),
                 "hints_used": len(q_hints),
                 "max_hint_level": max((int(h.get("hint_level", 1)) for h in q_hints), default=0),
             })
 
         time_taken = float(assessment.get("elapsed_seconds") or assessment.get("time_taken_seconds") or 0.0)
+        outcome = "PASS" if eff_eval["final_score"] >= 80.0 else "NEEDS_IMPROVEMENT"
+        candidate_name = user.get("full_name") or user.get("name") or user.get("email") or "Candidate"
+
+        # Unique skills deduplication
+        demonstrated_skills = list(dict.fromkeys(demonstrated_skills))
+        claimed_skills_list = [str(s) for s in claimed_skills]
+        unassessed_skills = [
+            s for s in claimed_skills_list
+            if not any(s.lower() == a.lower() for a in assessed_skills)
+        ]
+
+        ai_metrics = {
+            "hints_requested": len(hints),
+            "hint_levels_used": sorted({int(h.get("hint_level", 1)) for h in hints}),
+            "productive_hints": eff_eval["scoring_components"].get("questions_resolved_after_hints", 0),
+            "progress_after_hints": eff_eval["scoring_components"].get("questions_resolved_after_hints", 0) > 0,
+            "testing_frequency": len(assess_subs),
+        }
 
         return {
             "success": True,
@@ -466,6 +518,11 @@ class AnalyticsService:
             "title": str(assessment.get("title", "Technical Assessment")),
             "status": str(assessment.get("status", "completed")),
             "completed_at": assessment.get("completed_at"),
+            "candidate_name": candidate_name,
+            "domain": domain,
+            "tier": tier,
+            "duration_minutes": int(assessment.get("total_time_limit_minutes") or assessment.get("duration_minutes") or 60),
+            "outcome": outcome,
             "coding_score": eff_eval["coding_score"],
             "ai_efficiency_score": eff_eval["ai_efficiency_score"],
             "final_score": eff_eval["final_score"],
@@ -478,6 +535,10 @@ class AnalyticsService:
             "failed_test_cases": total_failed,
             "total_test_cases": total_correct + total_failed,
             "time_taken_seconds": time_taken,
+            "ai_metrics": ai_metrics,
+            "claimed_skills": claimed_skills_list,
+            "demonstrated_skills": demonstrated_skills,
+            "unassessed_skills": unassessed_skills,
             "question_performance": question_performance,
         }
 
