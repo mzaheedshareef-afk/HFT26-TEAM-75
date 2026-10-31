@@ -684,6 +684,7 @@ class GradingEngine:
             hint_interactions=hints,
             questions=questions,
             submissions=all_subs,
+            tier=assessment_record.get("difficulty") if assessment_record else None,
         )
         ai_eff_score = eff_eval["ai_efficiency_score"]
         final_score = eff_eval["final_score"]

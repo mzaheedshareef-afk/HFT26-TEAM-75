@@ -73,6 +73,10 @@ async def upload_portfolio(
     resume_bytes: Optional[bytes] = None
     archive_file_name: Optional[str] = None
     archive_bytes: Optional[bytes] = None
+    dsa_topics_solved: List[str] = []
+    preferred_domain: str = "Backend Development"
+    skills: List[Dict[str, Any]] = []
+    projects: List[Dict[str, Any]] = []
 
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -103,6 +107,21 @@ async def upload_portfolio(
                 frameworks = [x.strip() for x in str(raw_fw).split(",") if x.strip()]
 
         notes = str(form.get("notes") or form.get("portfolio_notes") or form.get("portfolioNotes") or "").strip() or None
+
+        raw_dsa = form.get("dsa_topics_solved") or form.get("dsa_topics") or form.get("dsaTopics")
+        if raw_dsa:
+            try:
+                parsed_dsa = json.loads(str(raw_dsa))
+                if isinstance(parsed_dsa, list):
+                    dsa_topics_solved = [str(x).strip() for x in parsed_dsa if str(x).strip()]
+                elif isinstance(parsed_dsa, str):
+                    dsa_topics_solved = [parsed_dsa.strip()]
+            except Exception:
+                dsa_topics_solved = [x.strip() for x in str(raw_dsa).split(",") if x.strip()]
+
+        raw_domain = form.get("preferred_domain") or form.get("domain")
+        if raw_domain:
+            preferred_domain = str(raw_domain).strip()
 
         # Parse files
         resume_obj = form.get("resume_file")
@@ -147,6 +166,19 @@ async def upload_portfolio(
         languages = json_req.get_languages()
         frameworks = json_req.get_frameworks()
         notes = json_req.get_notes()
+        dsa_topics_solved = json_req.get_dsa_topics()
+        preferred_domain = json_req.get_preferred_domain()
+        parsed_skills = []
+        if json_req.skills:
+            for s in json_req.skills:
+                if hasattr(s, "model_dump"):
+                    parsed_skills.append(s.model_dump())
+                elif isinstance(s, dict):
+                    parsed_skills.append(s)
+                elif isinstance(s, str):
+                    parsed_skills.append({"name": s, "category": "general", "proficiency": "intermediate"})
+        skills = parsed_skills
+        projects = [p.model_dump() for p in json_req.projects] if json_req.projects else []
 
     # 4. Strict validation
     validate_portfolio_inputs(github_url, languages)
@@ -163,6 +195,10 @@ async def upload_portfolio(
         resume_bytes=resume_bytes,
         archive_filename=archive_file_name,
         archive_bytes=archive_bytes,
+        dsa_topics_solved=dsa_topics_solved,
+        preferred_domain=preferred_domain,
+        skills=skills,
+        projects=projects,
     )
 
     return JSONResponse(

@@ -75,6 +75,11 @@ class AssessmentResultAnalyticsResponse(BaseModel):
     title: str
     status: str
     completed_at: Optional[str] = None
+    candidate_name: Optional[str] = None
+    domain: Optional[str] = None
+    tier: Optional[str] = None
+    duration_minutes: Optional[int] = 60
+    outcome: Optional[str] = "PASS"
     coding_score: float
     ai_efficiency_score: float
     final_score: float
@@ -87,5 +92,9 @@ class AssessmentResultAnalyticsResponse(BaseModel):
     failed_test_cases: int
     total_test_cases: int
     time_taken_seconds: float
+    ai_metrics: Optional[Dict[str, Any]] = None
+    claimed_skills: Optional[List[str]] = Field(default_factory=list)
+    demonstrated_skills: Optional[List[str]] = Field(default_factory=list)
+    unassessed_skills: Optional[List[str]] = Field(default_factory=list)
     question_performance: List[Dict[str, Any]] = Field(default_factory=list)
 
