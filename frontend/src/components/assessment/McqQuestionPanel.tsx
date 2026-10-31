@@ -1,3 +1,4 @@
+import React from 'react';
 import { HelpCircle, CheckCircle, Sparkles } from 'lucide-react';
 import type { CodingQuestion } from '../../types/assessment';
 
@@ -25,7 +26,7 @@ export function McqQuestionPanel({
             MCQ &middot; Single Choice
           </span>
           <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
-            {question.topic || question.target_skill || question.domain}
+            {question.topic || question.domain}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -113,3 +114,4 @@ export function McqQuestionPanel({
     </div>
   );
 }
+

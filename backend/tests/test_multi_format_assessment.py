@@ -109,6 +109,42 @@ class TestMultiFormatAssessmentGeneration:
         assert "java" in coding.starter_code
         assert "public class Solution" in coding.starter_code["java"]
 
+        # Strictly verify zero-trust validation passes for Java assessment
+        validate_generated_assessment(assessment)
+
+    def test_cpp_portfolio_generates_and_validates_cpp_coding_questions(self):
+        portfolio = {
+            "primary_languages": ["C++"],
+            "skills": ["Algorithms", "Low-Level Programming"],
+            "frameworks": ["Qt"],
+            "dsa_topics_solved": ["Arrays", "Two Pointers"],
+            "projects": [
+                {
+                    "title": "High Frequency Engine",
+                    "description": "Sub-microsecond matching engine in modern C++",
+                    "technologies": ["C++", "CMake"],
+                }
+            ],
+        }
+
+        assessment = generate_portfolio_calibrated_fallback(
+            portfolio_data=portfolio,
+            target_role="C++ Systems Engineer",
+            mcq_count=2,
+            msq_count=1,
+            coding_count=1,
+            question_count=4,
+        )
+
+        codings = [q for q in assessment.questions if q.question_type == "coding"]
+        assert len(codings) == 1
+        coding = codings[0]
+        assert "cpp" in coding.allowed_languages
+        assert "cpp" in coding.starter_code
+
+        # Strictly verify zero-trust validation passes for C++ assessment
+        validate_generated_assessment(assessment)
+
     def test_confidential_answers_and_hidden_tests_are_stripped(self):
         portfolio = {
             "primary_languages": ["Python"],

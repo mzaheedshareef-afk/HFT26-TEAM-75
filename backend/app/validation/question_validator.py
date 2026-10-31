@@ -239,28 +239,43 @@ def validate_single_task(
     # -------------------------------------------------------------
     # Coding Task Validation Pipeline (Tests A, B, C, D + DSA Whitelist)
     # -------------------------------------------------------------
+    task_lang = (question.allowed_languages[0] if question.allowed_languages else language or "python").lower()
     starter_dict = question.starter_code or {}
-    py_starter = starter_dict.get("python") or starter_dict.get(language)
-    if py_starter:
-        is_valid, msg = validate_python_syntax(py_starter, "starter_code")
-        if not is_valid:
-            errors.append(f"Question '{question.question_id}': {msg}")
+    task_starter = starter_dict.get(task_lang) or starter_dict.get("python") or (list(starter_dict.values())[0] if starter_dict else "")
 
-    if question.reference_solution:
-        is_valid, msg = validate_python_syntax(question.reference_solution, "reference_solution")
-        if not is_valid:
-            errors.append(f"Question '{question.question_id}': {msg}")
+    if not task_starter or not task_starter.strip():
+        errors.append(f"Question '{question.question_id}': Starter code for language '{task_lang}' is empty or missing.")
 
-    # Test D: Security Checks
-    if py_starter:
-        sec_ok, sec_msg = validate_security_operations(py_starter, "starter_code")
-        if not sec_ok:
-            errors.append(f"Question '{question.question_id}': {sec_msg}")
+    if task_lang == "python":
+        if task_starter:
+            is_valid, msg = validate_python_syntax(task_starter, "starter_code")
+            if not is_valid:
+                errors.append(f"Question '{question.question_id}': {msg}")
 
-    if question.reference_solution:
-        sec_ok, sec_msg = validate_security_operations(question.reference_solution, "reference_solution")
-        if not sec_ok:
-            errors.append(f"Question '{question.question_id}': {sec_msg}")
+        if question.reference_solution:
+            is_valid, msg = validate_python_syntax(question.reference_solution, "reference_solution")
+            if not is_valid:
+                errors.append(f"Question '{question.question_id}': {msg}")
+
+        # Test D: Python Security Checks
+        if task_starter:
+            sec_ok, sec_msg = validate_security_operations(task_starter, "starter_code")
+            if not sec_ok:
+                errors.append(f"Question '{question.question_id}': {sec_msg}")
+
+        if question.reference_solution:
+            sec_ok, sec_msg = validate_security_operations(question.reference_solution, "reference_solution")
+            if not sec_ok:
+                errors.append(f"Question '{question.question_id}': {sec_msg}")
+    else:
+        # Non-Python languages (Java, C++, etc.)
+        for label, code_str in [("starter_code", task_starter), ("reference_solution", question.reference_solution)]:
+            if code_str:
+                for pat in FORBIDDEN_CALL_PATTERNS:
+                    if re.search(pat, code_str, re.IGNORECASE):
+                        errors.append(f"Question '{question.question_id}': Forbidden security operation detected in {label}: matches pattern '{pat}'")
+                if code_str.count("{") != code_str.count("}") or code_str.count("(") != code_str.count(")"):
+                    errors.append(f"Question '{question.question_id}': Unbalanced braces/parentheses detected in {label}")
 
     # Strict DSA Whitelist Verification
     if claimed_dsa_topics is not None:
@@ -280,12 +295,12 @@ def validate_single_task(
         errors.extend([f"Question '{question.question_id}': {v}" for v in test_violations])
 
     # Test A: Reference Solution Validation
-    ref_ok, ref_violations = validate_reference_solution(question, language)
+    ref_ok, ref_violations = validate_reference_solution(question, task_lang)
     if not ref_ok:
         errors.extend([f"Question '{question.question_id}': {v}" for v in ref_violations])
 
     # Test B: Starter Code Validation
-    starter_ok, starter_violations = validate_starter_code_fails_tests(question, language)
+    starter_ok, starter_violations = validate_starter_code_fails_tests(question, task_lang)
     if not starter_ok:
         errors.extend([f"Question '{question.question_id}': {v}" for v in starter_violations])
 
@@ -328,10 +343,12 @@ def validate_generated_assessment(
             q.question_id = f"q{idx + 1}"
         seen_ids.add(q.question_id)
 
+        q_lang = (q.allowed_languages[0] if q.allowed_languages else language or "python").lower()
+
         task_validation = validate_single_task(
             question=q,
             claimed_dsa_topics=claimed_dsa_topics,
-            language=language,
+            language=q_lang,
         )
         if not task_validation["is_valid"]:
             all_errors.extend(task_validation["errors"])

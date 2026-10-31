@@ -1,3 +1,4 @@
+import React from 'react';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import type { CodingQuestion } from '../../types/assessment';
 
@@ -61,7 +62,7 @@ export function AssessmentSubmitModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2.5">
@@ -169,3 +170,4 @@ export function AssessmentSubmitModal({
     </div>
   );
 }
+
