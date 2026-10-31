@@ -336,7 +336,33 @@ class GradingEngine:
             _user_submissions_index[user_id] = []
         _user_submissions_index[user_id].insert(0, submission_id)
 
-        # 5. Persist to Supabase Database
+        # 5. Persist to Supabase Database (both coding_submissions and submissions)
+        try:
+            client.table("coding_submissions").insert({
+                "id": submission_id,
+                "assessment_id": assessment_id,
+                "question_id": question_id,
+                "student_id": user_id,
+                "user_id": user_id,
+                "language": canonical_lang,
+                "source_code": source_code,
+                "execution_status": overall_status,
+                "status": overall_status,
+                "test_cases_passed": passed_tests_count,
+                "passed_tests": passed_tests_count,
+                "total_test_cases": total_tests_count,
+                "total_tests": total_tests_count,
+                "failed_tests": failed_tests_count,
+                "execution_time_ms": int(total_exec_time),
+                "memory_used_mb": float(score_metrics["max_memory_mb"]),
+                "score": float(score_metrics["score"]),
+                "test_results": candidate_public_results + candidate_hidden_results,
+                "submitted_at": now_iso,
+                "created_at": now_iso,
+            }).execute()
+        except Exception as e:
+            logger.debug("Database insert coding_submissions note: %s", e)
+
         try:
             client.table("submissions").insert({
                 "id": submission_id,
@@ -499,40 +525,69 @@ class GradingEngine:
         cls,
         client: Client,
         user_id: str,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Retrieves candidate's most recent graded submission summary.
-        Raises 404 if no submissions exist.
+        Returns None (consistent empty state) if no submissions exist (never raises 404).
         """
         subs = [
             s for s in _submissions_memory_store.values()
-            if str(s.get("user_id")) == str(user_id)
+            if str(s.get("user_id")) == str(user_id) or str(s.get("student_id")) == str(user_id)
         ]
 
         if subs:
-            latest = sorted(subs, key=lambda s: s.get("created_at", ""), reverse=True)[0]
+            latest = sorted(
+                subs,
+                key=lambda s: str(s.get("created_at") or s.get("submitted_at") or ""),
+                reverse=True,
+            )[0]
             summary = dict(latest)
+            status_val = latest.get("status") or latest.get("execution_status", "wrong_answer")
             summary.setdefault("deterministic_score", latest.get("score", 0.0))
             summary.setdefault("overall_score", latest.get("score", 0.0))
-            summary.setdefault("overall_verdict", STATUS_TO_VERDICT.get(latest.get("status", "wrong_answer"), "WA"))
+            summary.setdefault("overall_verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+            summary.setdefault("verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+            summary.setdefault("submission_id", latest.get("id") or latest.get("submission_id"))
+            summary.setdefault("passed_tests", latest.get("passed_tests") or latest.get("test_cases_passed", 0))
+            summary.setdefault("total_tests", latest.get("total_tests") or latest.get("total_test_cases", 0))
             return summary
 
+        # 1. Query coding_submissions in Supabase
+        try:
+            res = client.table("coding_submissions").select("*").or_(
+                f"user_id.eq.{user_id},student_id.eq.{user_id}"
+            ).order("created_at", desc=True).limit(1).execute()
+            if res.data and len(res.data) > 0:
+                row = dict(res.data[0])
+                status_val = row.get("status") or row.get("execution_status", "wrong_answer")
+                row.setdefault("deterministic_score", row.get("score", 0.0))
+                row.setdefault("overall_score", row.get("score", 0.0))
+                row.setdefault("overall_verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+                row.setdefault("verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+                row.setdefault("submission_id", row.get("id") or row.get("submission_id"))
+                row.setdefault("passed_tests", row.get("passed_tests") or row.get("test_cases_passed", 0))
+                row.setdefault("total_tests", row.get("total_tests") or row.get("total_test_cases", 0))
+                return row
+        except Exception as e:
+            logger.debug("Database coding_submissions fetch note: %s", e)
+
+        # 2. Query legacy submissions in Supabase
         try:
             res = client.table("submissions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
             if res.data and len(res.data) > 0:
-                row = res.data[0]
+                row = dict(res.data[0])
+                status_val = row.get("status") or row.get("execution_status", "wrong_answer")
                 row.setdefault("deterministic_score", row.get("score", 0.0))
                 row.setdefault("overall_score", row.get("score", 0.0))
-                row.setdefault("overall_verdict", STATUS_TO_VERDICT.get(row.get("status", "wrong_answer"), "WA"))
+                row.setdefault("overall_verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+                row.setdefault("verdict", STATUS_TO_VERDICT.get(status_val, "WA"))
+                row.setdefault("submission_id", row.get("id") or row.get("submission_id"))
                 return row
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Database submissions fetch note: %s", e)
 
-        raise AuthException(
-            code="NO_SUBMISSIONS",
-            message="No submissions found for candidate.",
-            status_code=404,
-        )
+        # Consistent empty state: return None
+        return None
 
     @classmethod
     def get_submission_by_id(
@@ -552,6 +607,14 @@ class GradingEngine:
         sub = _submissions_memory_store.get(submission_id)
         if not sub:
             try:
+                res = client.table("coding_submissions").select("*").eq("id", submission_id).execute()
+                if res.data and len(res.data) > 0:
+                    sub = res.data[0]
+            except Exception as e:
+                logger.debug("Database coding_submissions fetch note: %s", e)
+
+        if not sub:
+            try:
                 res = client.table("submissions").select("*").eq("id", submission_id).execute()
                 if res.data and len(res.data) > 0:
                     sub = res.data[0]
@@ -565,7 +628,7 @@ class GradingEngine:
                 status_code=404,
             )
 
-        owner_id = str(sub.get("user_id"))
+        owner_id = str(sub.get("user_id") or sub.get("student_id"))
         if req_role != "company" and owner_id != req_user_id:
             raise AuthException(
                 code="UNAUTHORIZED_ACCESS",

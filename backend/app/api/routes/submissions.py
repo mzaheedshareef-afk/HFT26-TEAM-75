@@ -156,6 +156,19 @@ def submit_code(
     )
 
 
+@code_router.get(
+    "/submissions/latest",
+    status_code=status.HTTP_200_OK,
+    summary="Get candidate's latest submission (alias)",
+)
+def get_latest_code_submission_alias(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Alias allowing GET /api/code/submissions/latest."""
+    return get_latest_candidate_submission(current_user, client)
+
+
 # -------------------------------------------------------------------------
 # Submission Query & Alias Endpoints
 # -------------------------------------------------------------------------
@@ -184,15 +197,31 @@ def get_latest_candidate_submission(
     current_user: Dict[str, Any] = Depends(require_student_user),
     client: Client = Depends(get_supabase_client),
 ) -> JSONResponse:
-    """Returns candidate's latest graded submission summary."""
+    """Returns candidate's latest graded submission summary or consistent empty state."""
     latest = GradingEngine.get_latest_submission(client, current_user["id"])
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "success": True,
             "summary": latest,
+            "submission": latest,
+            "message": "Latest submission retrieved successfully." if latest else "No submissions found for candidate.",
         },
     )
+
+
+@submissions_router.get(
+    "/results/latest",
+    status_code=status.HTTP_200_OK,
+    summary="Get candidate's latest assessment results (alias)",
+)
+def get_latest_results_submission_alias(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Alias allowing GET /api/submissions/results/latest."""
+    from backend.app.api.routes.assessment import get_latest_assessment_results
+    return get_latest_assessment_results(current_user, client)
 
 
 @submissions_router.get(

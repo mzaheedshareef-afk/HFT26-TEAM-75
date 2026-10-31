@@ -133,7 +133,7 @@ def get_active_session(
 ) -> JSONResponse:
     """
     Returns active or ready assessment session for candidate.
-    Returns 404 if no assessment has been generated yet.
+    Returns consistent empty session response (HTTP 200) if no assessment has been generated yet.
     """
     session = AssessmentService.get_active_session(
         client=client,
@@ -142,13 +142,12 @@ def get_active_session(
 
     if not session:
         return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_200_OK,
             content={
-                "success": False,
-                "error": {
-                    "code": "NO_ACTIVE_SESSION",
-                    "message": "No active assessment session found. Please generate or start an assessment.",
-                },
+                "success": True,
+                "session": None,
+                "assessment": None,
+                "message": "No active assessment session found. Please generate or start an assessment.",
             },
         )
 
@@ -157,6 +156,8 @@ def get_active_session(
         content={
             "success": True,
             "session": session,
+            "assessment": session,
+            "message": "Active assessment session retrieved successfully.",
         },
     )
 
@@ -221,29 +222,99 @@ def get_latest_assessment_results(
     current_user: Dict[str, Any] = Depends(require_student_user),
     client: Client = Depends(get_supabase_client),
 ) -> JSONResponse:
-    """Retrieves results of latest completed or evaluated assessment."""
-    assessments = AssessmentService.get_candidate_assessments(client, current_user["id"])
-    if not assessments:
+    """
+    Retrieves results of latest completed assessment for candidate.
+    Returns consistent empty state response (HTTP 200) if candidate has not completed an assessment.
+    """
+    user_id = str(current_user["id"])
+
+    # 1. Check in-memory results store
+    from backend.app.services.assessment_service import _assessment_results_store
+    candidate_results = [
+        r for r in _assessment_results_store.values()
+        if str(r.get("user_id")) == user_id or str(r.get("student_id")) == user_id
+    ]
+    if candidate_results:
+        latest_res = sorted(
+            candidate_results,
+            key=lambda r: str(r.get("completed_at") or r.get("updated_at") or ""),
+            reverse=True,
+        )[0]
         return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_200_OK,
             content={
-                "success": False,
-                "error": {
-                    "code": "NO_ASSESSMENT_FOUND",
-                    "message": "No assessments found for candidate.",
-                },
+                "success": True,
+                "results": latest_res,
+                "result": latest_res,
+                "message": "Latest assessment results retrieved successfully.",
             },
         )
-    latest_id = assessments[0]["id"]
-    results = GradingEngine.get_assessment_results(client, latest_id, current_user)
+
+    # 2. Check Supabase assessment_results table
+    try:
+        res = client.table("assessment_results").select("*").or_(
+            f"user_id.eq.{user_id},student_id.eq.{user_id}"
+        ).order("created_at", desc=True).limit(1).execute()
+        if res.data and len(res.data) > 0:
+            db_row = dict(res.data[0])
+            breakdown = db_row.get("breakdown") or {}
+            combined = {**breakdown, **db_row}
+            combined.setdefault("final_score", db_row.get("total_score", 0.0))
+            combined.setdefault("percentage", db_row.get("percentage", 0.0))
+            combined.setdefault("total_score", db_row.get("total_score", 0.0))
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "results": combined,
+                    "result": combined,
+                    "message": "Latest assessment results retrieved successfully.",
+                },
+            )
+    except Exception as e:
+        logger.debug("Database assessment_results fetch note: %s", e)
+
+    # 3. Check assessments table for any completed assessments
+    assessments = AssessmentService.get_candidate_assessments(client, user_id)
+    completed_assessments = [
+        a for a in assessments if a.get("status") in ("completed", "evaluated")
+    ]
+    if completed_assessments:
+        latest_aid = completed_assessments[0]["id"]
+        results = AssessmentService.get_assessment_results(client, latest_aid, current_user)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "results": results,
+                "result": results,
+                "message": "Latest assessment results retrieved successfully.",
+            },
+        )
+
+    # 4. Consistent empty state: HTTP 200 with null results
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "success": True,
-            "results": results,
-            "result": results,
+            "results": None,
+            "result": None,
+            "message": "No completed assessment results found for candidate.",
         },
     )
+
+
+@router.get(
+    "/submissions/latest",
+    summary="Get candidate's latest submission (alias)",
+)
+def get_latest_submission_assessment_alias(
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Alias allowing GET /api/assessment/submissions/latest."""
+    from backend.app.api.routes.submissions import get_latest_candidate_submission
+    return get_latest_candidate_submission(current_user, client)
 
 
 @router.get(

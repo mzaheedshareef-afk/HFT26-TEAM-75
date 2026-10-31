@@ -1226,6 +1226,13 @@ export const assessmentService = {
     try {
       const response = await api.get<unknown>('/api/assessment/active');
       const data = response.data;
+      if (
+        isRecord(data) &&
+        (('session' in data && data.session === null) ||
+          ('assessment' in data && data.assessment === null))
+      ) {
+        return null;
+      }
       const rawSession =
         (isRecord(data) && isRecord(data.session) && data.session) ||
         (isRecord(data) && isRecord(data.assessment) && data.assessment) ||
@@ -1400,6 +1407,13 @@ export const assessmentService = {
         : '/api/assessment/results/latest';
       const response = await api.get<unknown>(endpoint);
       const data = response.data;
+      if (
+        isRecord(data) &&
+        (('results' in data && data.results === null) ||
+          ('result' in data && data.result === null))
+      ) {
+        return null;
+      }
       const rawResult =
         (isRecord(data) && isRecord(data.results) && data.results) ||
         (isRecord(data) && isRecord(data.result) && data.result) ||

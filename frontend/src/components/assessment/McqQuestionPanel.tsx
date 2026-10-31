@@ -1,4 +1,3 @@
-import React from 'react';
 import { HelpCircle, CheckCircle, Sparkles } from 'lucide-react';
 import type { CodingQuestion } from '../../types/assessment';
 

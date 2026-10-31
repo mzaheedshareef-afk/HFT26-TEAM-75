@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import type { CodingQuestion } from '../../types/assessment';
 

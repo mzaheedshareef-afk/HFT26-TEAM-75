@@ -191,10 +191,28 @@ class AssessmentService:
 
         if not assessments:
             try:
-                res = client.table("assessments").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+                res = client.table("assessments").select("*").or_(
+                    f"user_id.eq.{user_id},student_id.eq.{user_id}"
+                ).order("created_at", desc=True).execute()
                 if res.data:
                     for row in res.data:
-                        assessments.append(sanitize_assessment_for_candidate(row))
+                        aid = row.get("id")
+                        q_res = client.table("assessment_questions").select("*").eq("assessment_id", aid).order("order_index").execute()
+                        full_qs = q_res.data or []
+                        row_copy = dict(row)
+                        clean_qs = []
+                        for q in full_qs:
+                            cq = dict(q)
+                            cq.pop("hidden_test_cases", None)
+                            cq.pop("reference_solution", None)
+                            cq.pop("solution_code", None)
+                            cq.pop("correct_answer", None)
+                            cq.pop("correct_answers", None)
+                            cq.pop("explanation", None)
+                            cq["question_id"] = cq.get("id")
+                            clean_qs.append(cq)
+                        row_copy["questions"] = clean_qs
+                        assessments.append(sanitize_assessment_for_candidate(row_copy))
             except Exception as e:
                 logger.debug("Database query assessments note: %s", e)
 
@@ -554,6 +572,26 @@ class AssessmentService:
         except Exception:
             pass
 
+        try:
+            client.table("assessment_results").upsert({
+                "assessment_id": assessment_id,
+                "student_id": user_id,
+                "user_id": user_id,
+                "total_questions": len(full_questions),
+                "questions_count": len(full_questions),
+                "correct_answers": results_record["questions_passed"],
+                "questions_passed": results_record["questions_passed"],
+                "total_score": percentage,
+                "max_possible_score": total_possible,
+                "percentage": percentage,
+                "passed": percentage >= 60.0,
+                "status": "completed",
+                "breakdown": results_record,
+                "updated_at": now_iso,
+            }, on_conflict="assessment_id").execute()
+        except Exception as e:
+            logger.debug("Database upsert assessment_results note: %s", e)
+
         return results_record
 
     @classmethod
@@ -565,20 +603,44 @@ class AssessmentService:
     ) -> Dict[str, Any]:
         """
         Retrieves evaluated results including answer keys and explanations once completed.
+        Enforces candidate ownership isolation.
         """
         req_user_id = str(requesting_user.get("id"))
         req_role = str(requesting_user.get("role", "student"))
 
         record = _assessment_memory_store.get(assessment_id)
-        if record and req_role != "company" and str(record.get("user_id")) != req_user_id:
-            raise AuthException(
-                code="UNAUTHORIZED_ACCESS",
-                message="Cannot view results: assessment not owned by candidate.",
-                status_code=403,
-            )
+        if not record:
+            try:
+                res = client.table("assessments").select("*").eq("id", assessment_id).execute()
+                if res.data and len(res.data) > 0:
+                    record = res.data[0]
+            except Exception:
+                pass
+
+        if record:
+            owner_id = str(record.get("user_id") or record.get("student_id"))
+            if req_role != "company" and owner_id != req_user_id:
+                raise AuthException(
+                    code="UNAUTHORIZED_ACCESS",
+                    message="Cannot view results: assessment not owned by candidate.",
+                    status_code=403,
+                )
 
         if assessment_id in _assessment_results_store:
             return _assessment_results_store[assessment_id]
+
+        try:
+            r_res = client.table("assessment_results").select("*").eq("assessment_id", assessment_id).execute()
+            if r_res.data and len(r_res.data) > 0:
+                row = r_res.data[0]
+                breakdown = row.get("breakdown") or {}
+                combined = {**breakdown, **row}
+                combined.setdefault("final_score", row.get("total_score", 0.0))
+                combined.setdefault("percentage", row.get("percentage", 0.0))
+                combined.setdefault("total_score", row.get("total_score", 0.0))
+                return combined
+        except Exception as e:
+            logger.debug("Database assessment_results fetch note: %s", e)
 
         # If not evaluated yet, auto-evaluate
         return cls.complete_assessment(client, assessment_id, req_user_id)
