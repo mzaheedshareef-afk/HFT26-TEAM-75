@@ -99,3 +99,4 @@ flowchart TD
 
 - **PASS:** Composite final score $\ge 80.0\%$. Indicates strong technical competence, independent problem solving, and effective tool utilization.
 - **NEEDS_IMPROVEMENT:** Composite final score $< 80.0\%$. Highlights areas for skill development without ambiguous subjective reviews.
+

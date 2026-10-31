@@ -58,3 +58,4 @@ By pairing zero-trust portfolio intake and strict canonical DSA whitelisting wit
 - End-to-End Scenarios: **12 tests in `tests/test_hackathon_scenarios.py` passing (100% pass rate)**.
 - Frontend Build: **Clean Vite production build with 0 TypeScript errors**.
 - Security Isolation: Non-root execution, network disabled, read-only rootfs, zero host credential leakage.
+

@@ -93,3 +93,4 @@ flowchart TD
 ### 2.6 Recruiter Talent Discovery Subsystem
 - **Endpoints:** `GET /api/recruiter/candidates`, `POST /api/recruiter/shortlist`, `POST /api/recruiter/compare`
 - **Privacy Enforcement:** Excludes private student profiles; allows recruiters to filter talent by domain, language, coding score, AI efficiency score, and compare up to 4 candidates side-by-side.
+

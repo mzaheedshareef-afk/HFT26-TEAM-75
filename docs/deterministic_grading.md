@@ -74,3 +74,4 @@ flowchart TD
 | **CE** | Compilation / Syntax Error | Code failed language compiler or Python AST syntax parsing. |
 | **RTE** | Runtime Error | Process threw unhandled exception or non-zero exit code during execution. |
 | **SEC** | Security Violation | Code triggered pre-execution security or sandbox capability violation. |
+
