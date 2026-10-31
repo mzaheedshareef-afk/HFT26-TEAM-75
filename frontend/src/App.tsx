@@ -24,6 +24,7 @@ import { AssessmentHistoryPage } from './pages/student/AssessmentHistoryPage';
 import { StudentProfileSettingsPage } from './pages/student/StudentProfileSettingsPage';
 import { PublicStudentProfilePage } from './pages/public/PublicStudentProfilePage';
 import { BrandLogo } from './components/ui/BrandLogo';
+import { BackendOfflineBanner } from './components/common/BackendOfflineBanner';
 
 function NotFoundPage() {
   return (
@@ -219,6 +220,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <BackendOfflineBanner />
         <AppRoutes />
       </BrowserRouter>
     </AuthProvider>
