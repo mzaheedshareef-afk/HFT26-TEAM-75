@@ -12,6 +12,10 @@ from backend.app.schemas.assessment import (
     GeneratedAssessmentSchema,
     GeneratedQuestionSchema,
 )
+from backend.app.validation.dsa_whitelist import (
+    extract_claimed_dsa_topics,
+    validate_question_dsa_whitelist,
+)
 from backend.app.validation.question_validator import (
     QuestionValidationError,
     validate_generated_assessment,
@@ -25,13 +29,11 @@ def _extract_json_from_text(raw_text: str) -> Dict[str, Any]:
     Strips markdown code blocks, backticks, and extraneous preamble to extract pure JSON.
     """
     clean = raw_text.strip()
-    # Find outer curly braces
     start_idx = clean.find("{")
     end_idx = clean.rfind("}")
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         clean = clean[start_idx : end_idx + 1]
     else:
-        # Try matching markdown code block
         match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean)
         if match:
             clean = match.group(1).strip()
@@ -48,6 +50,7 @@ def generate_portfolio_calibrated_fallback(
     """
     Deterministic adaptive synthesizer grounded in candidate's verified portfolio.
     Guarantees personalized, solvable questions when external AI API is unreachable or times out.
+    Strictly restricts DSA questions to the candidate's claimed DSA topics.
     """
     raw_langs = portfolio_data.get("primary_languages") or portfolio_data.get("primaryLanguages") or ["Python"]
     langs = [l.strip().lower() for l in raw_langs if l and l.strip()]
@@ -57,77 +60,67 @@ def generate_portfolio_calibrated_fallback(
     frameworks = [f.strip().lower() for f in (portfolio_data.get("frameworks") or []) if f and f.strip()]
     projects = portfolio_data.get("projects") or []
     primary_lang = langs[0].capitalize()
+    tier = difficulty_preference.lower()
 
-    # Question 1: DSA / Algorithmic challenge tailored to candidate's primary language
-    q1 = GeneratedQuestionSchema(
-        question_id="q1",
-        order_index=1,
-        title=f"Adaptive Sliding Window & Hash Indexer ({primary_lang})",
-        description=(
+    # Extract claimed DSA topics
+    claimed_dsa = extract_claimed_dsa_topics(portfolio_data)
+    has_linked_lists = any("linked list" in t.lower() for t in claimed_dsa)
+    has_sliding_window = any("sliding window" in t.lower() for t in claimed_dsa)
+    has_hash_tables = any("hash" in t.lower() for t in claimed_dsa)
+
+    # Question 1: DSA Question calibrated strictly to claimed topics
+    if has_linked_lists and not has_sliding_window:
+        q1_title = f"Linked List Node Compactor ({primary_lang})"
+        q1_topic = "Linked Lists"
+        q1_domain = "Linked Lists"
+        q1_desc = (
+            "Given a singly-linked list represented as an array of integer values `head`, "
+            "implement `compact_nodes(values)` that removes all consecutive duplicate nodes. "
+            "Returns the compressed list of integer node values."
+        )
+        q1_starter = {
+            "python": (
+                "def compact_nodes(values: list[int]) -> list[int]:\n"
+                "    # Return values with consecutive duplicates removed\n"
+                "    pass\n"
+            )
+        }
+        q1_ref = (
+            "def compact_nodes(values: list[int]) -> list[int]:\n"
+            "    if not values:\n"
+            "        return []\n"
+            "    res = [values[0]]\n"
+            "    for v in values[1:]:\n"
+            "        if v != res[-1]:\n"
+            "            res.append(v)\n"
+            "    return res\n"
+        )
+        q1_examples = [
+            {"test_case_id": "tc_pub_1", "input": "[1, 1, 2, 3, 3]", "expected_output": "[1, 2, 3]", "explanation": "Consecutive duplicates are merged."},
+            {"test_case_id": "tc_pub_2", "input": "[4, 4, 4]", "expected_output": "[4]", "explanation": "All identical consecutive elements become one."},
+        ]
+        q1_hidden = [
+            {"test_case_id": "tc_hid_1", "input": "[1, 2, 3, 4]", "expected_output": "[1, 2, 3, 4]", "weight": 1.0},
+            {"test_case_id": "tc_hid_2", "input": "[]", "expected_output": "[]", "weight": 1.0},
+            {"test_case_id": "tc_hid_3", "input": "[7, 7, 8, 8, 7]", "expected_output": "[7, 8, 7]", "weight": 1.5},
+        ]
+    elif has_sliding_window:
+        q1_title = f"Adaptive Sliding Window & Hash Indexer ({primary_lang})"
+        q1_topic = "Sliding Window"
+        q1_domain = "Sliding Window"
+        q1_desc = (
             f"Given an array of integer request timestamps and a sliding window duration `k` milliseconds, "
             f"implement an optimal function `max_throughput(timestamps, k)` that returns the maximum number of requests "
-            f"received within any contiguous sub-window of length at most `k`. "
-            f"Your solution should achieve O(N) time complexity and O(1) auxiliary space."
-        ),
-        difficulty=difficulty_preference,
-        topic="Data Structures & Algorithms",
-        domain="Sliding Window & Hash Maps",
-        target_skill=f"{primary_lang} / Performance Optimization",
-        constraints=[
-            "Time limit: 2000ms",
-            "Memory limit: 256MB",
-            "1 <= len(timestamps) <= 200,000",
-            "Timestamps are non-decreasing positive integers",
-        ],
-        examples=[
-            {
-                "test_case_id": "tc_pub_1",
-                "input": "[10, 20, 25, 30, 45, 50], 15",
-                "expected_output": "3",
-                "explanation": "Window [10, 25] contains 3 timestamps: 10, 20, 25.",
-            },
-            {
-                "test_case_id": "tc_pub_2",
-                "input": "[100, 200, 300], 50",
-                "expected_output": "1",
-                "explanation": "All timestamps are spaced >50ms apart, maximum in any window is 1.",
-            },
-        ],
-        allowed_languages=[langs[0], "python", "javascript", "java", "cpp"],
-        starter_code={
+            f"received within any contiguous sub-window of length at most `k`."
+        )
+        q1_starter = {
             "python": (
                 "def max_throughput(timestamps: list[int], k: int) -> int:\n"
                 "    # Implement your O(N) sliding window solution here\n"
                 "    pass\n"
-            ),
-            "javascript": (
-                "function maxThroughput(timestamps, k) {\n"
-                "    // Implement your O(N) sliding window solution here\n"
-                "    return 0;\n"
-                "}\n"
-            ),
-        },
-        hidden_test_cases=[
-            {
-                "test_case_id": "tc_hid_1",
-                "input": "[1, 2, 3, 4, 5], 3",
-                "expected_output": "4",
-                "weight": 1.0,
-            },
-            {
-                "test_case_id": "tc_hid_2",
-                "input": "[100], 10",
-                "expected_output": "1",
-                "weight": 1.0,
-            },
-            {
-                "test_case_id": "tc_hid_3",
-                "input": "[5, 5, 5, 5, 5], 0",
-                "expected_output": "5",
-                "weight": 1.5,
-            },
-        ],
-        reference_solution=(
+            )
+        }
+        q1_ref = (
             "def max_throughput(timestamps: list[int], k: int) -> int:\n"
             "    if not timestamps:\n"
             "        return 0\n"
@@ -138,18 +131,76 @@ def generate_portfolio_calibrated_fallback(
             "            left += 1\n"
             "        max_count = max(max_count, right - left + 1)\n"
             "    return max_count\n"
-        ),
+        )
+        q1_examples = [
+            {"test_case_id": "tc_pub_1", "input": "[10, 20, 25, 30, 45, 50], 15", "expected_output": "3", "explanation": "Window [10, 25] contains 3 timestamps."},
+            {"test_case_id": "tc_pub_2", "input": "[100, 200, 300], 50", "expected_output": "1", "explanation": "Timestamps are >50 apart."},
+        ]
+        q1_hidden = [
+            {"test_case_id": "tc_hid_1", "input": "[1, 2, 3, 4, 5], 3", "expected_output": "4", "weight": 1.0},
+            {"test_case_id": "tc_hid_2", "input": "[100], 10", "expected_output": "1", "weight": 1.0},
+            {"test_case_id": "tc_hid_3", "input": "[5, 5, 5, 5, 5], 0", "expected_output": "5", "weight": 1.5},
+        ]
+    else:
+        # Default for Arrays / Strings
+        q1_title = f"Sequential Array In-Place Compactor ({primary_lang})"
+        q1_topic = "Arrays"
+        q1_domain = "Arrays"
+        q1_desc = (
+            "Given an array of integer tokens `nums` and an unwanted value `val`, "
+            "implement `filter_array(nums, val)` that returns a new array with all occurrences of `val` removed, "
+            "preserving the relative order of the remaining elements."
+        )
+        q1_starter = {
+            "python": (
+                "def filter_array(nums: list[int], val: int) -> list[int]:\n"
+                "    # Return array without val preserving original order\n"
+                "    pass\n"
+            )
+        }
+        q1_ref = (
+            "def filter_array(nums: list[int], val: int) -> list[int]:\n"
+            "    return [x for x in nums if x != val]\n"
+        )
+        q1_examples = [
+            {"test_case_id": "tc_pub_1", "input": "[3, 2, 2, 3], 3", "expected_output": "[2, 2]", "explanation": "3 is removed."},
+            {"test_case_id": "tc_pub_2", "input": "[0, 1, 2, 2, 3, 0, 4, 2], 2", "expected_output": "[0, 1, 3, 0, 4]", "explanation": "2 is removed."},
+        ]
+        q1_hidden = [
+            {"test_case_id": "tc_hid_1", "input": "[1, 1, 1], 1", "expected_output": "[]", "weight": 1.0},
+            {"test_case_id": "tc_hid_2", "input": "[1, 2, 3], 4", "expected_output": "[1, 2, 3]", "weight": 1.0},
+            {"test_case_id": "tc_hid_3", "input": "[], 5", "expected_output": "[]", "weight": 1.5},
+        ]
+
+    q1 = GeneratedQuestionSchema(
+        question_id="q1",
+        order_index=1,
+        title=q1_title,
+        description=q1_desc,
+        difficulty=difficulty_preference,
+        topic=q1_topic,
+        domain=q1_domain,
+        target_skill=q1_topic,
+        constraints=[
+            "Time limit: 2000ms",
+            "Memory limit: 256MB",
+            "Inputs are valid lists",
+        ],
+        examples=q1_examples,
+        allowed_languages=raw_langs,
+        starter_code=q1_starter,
+        hidden_test_cases=q1_hidden,
+        reference_solution=q1_ref,
         time_limit_seconds=2.0,
         memory_limit_mb=256,
     )
 
     # Question 2: Framework & System Architecture challenge
     has_fastapi = "fastapi" in frameworks or "python" in langs
-    has_react = "react" in frameworks or "typescript" in langs or "javascript" in langs
-
     if has_fastapi:
         q2_title = "High-Concurrency Token Bucket Rate Limiter"
         q2_topic = "Async Backend Architecture & Concurrency"
+        q2_domain = "Backend Development"
         q2_skill = "FastAPI / Python Asyncio"
         q2_desc = (
             "Design a thread-safe `TokenBucket` class capable of handling concurrent bursts. "
@@ -163,7 +214,7 @@ def generate_portfolio_calibrated_fallback(
                 "    def __init__(self, capacity: float, refill_rate: float):\n"
                 "        self.capacity = capacity\n"
                 "        self.refill_rate = refill_rate\n"
-                "        self.current_tokens = capacity\n"
+                "        self.tokens = capacity\n"
                 "\n"
                 "    def consume(self, tokens: float = 1.0) -> bool:\n"
                 "        pass\n"
@@ -185,6 +236,7 @@ def generate_portfolio_calibrated_fallback(
     else:
         q2_title = "Thread-Safe Event Ingestion Buffer"
         q2_topic = "Distributed Systems & Buffering"
+        q2_domain = "Backend Development"
         q2_skill = f"{primary_lang} / Concurrency"
         q2_desc = (
             "Implement an in-memory batch buffer `EventBuffer` with a maximum batch size `batch_size`. "
@@ -225,7 +277,7 @@ def generate_portfolio_calibrated_fallback(
         description=q2_desc,
         difficulty=difficulty_preference,
         topic=q2_topic,
-        domain=q2_topic,
+        domain=q2_domain,
         target_skill=q2_skill,
         constraints=[
             "Time limit: 2000ms",
@@ -237,7 +289,7 @@ def generate_portfolio_calibrated_fallback(
                 "test_case_id": "tc_pub_1",
                 "input": "bucket = TokenBucket(10, 1.0); bucket.consume(5); bucket.consume(6)",
                 "expected_output": "True, False",
-                "explanation": "Consuming 5 succeeds (5 remaining); consuming 6 fails as only 5 are available.",
+                "explanation": "Consuming 5 succeeds; consuming 6 fails as only 5 are available.",
             }
         ],
         allowed_languages=raw_langs,
@@ -273,7 +325,7 @@ def generate_portfolio_calibrated_fallback(
         difficulty=difficulty_preference,
         topic="System Optimization & Data Integrity",
         domain=f"Project: {proj_name}",
-        target_skill=f"{primary_lang} / Data Engineering",
+        target_skill=claimed_dsa[0] if claimed_dsa else "Arrays",
         constraints=[
             "Time limit: 2000ms",
             "Memory limit: 256MB",
@@ -296,7 +348,7 @@ def generate_portfolio_calibrated_fallback(
             )
         },
         hidden_test_cases=[
-            {
+            {  
                 "test_case_id": "tc_hid_1",
                 "input": "[{'x': 1}, {'x': 1}, {'x': 1}], 'x'",
                 "expected_output": "[{'x': 1}]",
@@ -332,7 +384,7 @@ def generate_portfolio_calibrated_fallback(
 class QuestionGenerator:
     """
     Orchestrates prompt building, Featherless AI invocation, Pydantic schema validation,
-    and adaptive fallback synthesis.
+    strict DSA whitelist verification, and adaptive fallback synthesis.
     """
 
     def __init__(self, client=None):
@@ -348,12 +400,15 @@ class QuestionGenerator:
         """
         Generates a validated personalized assessment grounded in candidate portfolio.
         Employs AI with automatic retry, then falls back to calibrated adaptive synthesis if AI is unavailable.
+        Strictly enforces that DSA questions belong to the candidate's claimed DSA whitelist.
         """
         # Validate portfolio has substance
         langs = portfolio_data.get("primary_languages") or portfolio_data.get("primaryLanguages") or []
         clean_langs = [l for l in langs if l and l.strip()]
         if not clean_langs:
             raise ValueError("Portfolio must contain at least one primary programming language.")
+
+        claimed_dsa_topics = extract_claimed_dsa_topics(portfolio_data)
 
         prompts = build_assessment_prompts(
             portfolio_data=portfolio_data,
@@ -371,7 +426,6 @@ class QuestionGenerator:
                 max_tokens=3500,
             )
 
-            # Extract content from response
             choices = raw_response.get("choices")
             if not choices or not isinstance(choices, list) or len(choices) == 0:
                 raise QuestionValidationError("Featherless AI returned empty choices list.")
@@ -380,10 +434,14 @@ class QuestionGenerator:
             if not content:
                 raise QuestionValidationError("Featherless AI returned empty message content.")
 
-            # Parse JSON
             parsed_json = _extract_json_from_text(content)
             assessment_model = GeneratedAssessmentSchema(**parsed_json)
-            validate_generated_assessment(assessment_model)
+
+            # Enforce zero-trust validation pipeline + DSA whitelist
+            validate_generated_assessment(
+                assessment=assessment_model,
+                claimed_dsa_topics=claimed_dsa_topics,
+            )
             logger.info("Successfully generated and validated assessment via Featherless AI.")
             return assessment_model
 
@@ -399,7 +457,11 @@ class QuestionGenerator:
                 difficulty_preference=difficulty_preference,
                 question_count=question_count,
             )
-            validate_generated_assessment(fallback_assessment)
+            # Enforce zero-trust validation pipeline + DSA whitelist on fallback
+            validate_generated_assessment(
+                assessment=fallback_assessment,
+                claimed_dsa_topics=claimed_dsa_topics,
+            )
             return fallback_assessment
 
 

@@ -123,6 +123,15 @@ class HintService:
             requesting_user=user,
         )
 
+        # Enforce tier gating: AI Assistant is completely disabled for Novice / Easy tier
+        tier = str(assessment.get("difficulty") or assessment.get("tier") or "").lower()
+        if tier in ("easy", "novice"):
+            raise AuthException(
+                code="AI_ASSISTANT_DISABLED_FOR_TIER",
+                message="The AI Assistant is disabled for Novice/Easy tier assessments.",
+                status_code=403,
+            )
+
         # 2. Retrieve question details
         question = None
         if assessment_id in _assessment_questions_store:
