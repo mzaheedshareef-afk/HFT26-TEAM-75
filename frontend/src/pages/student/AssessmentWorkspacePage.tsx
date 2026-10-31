@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
 import {
   ArrowLeft,
   BarChart3,
@@ -8,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  ListChecks,
   Loader2,
   Play,
   RefreshCw,
@@ -27,6 +27,9 @@ import {
   VerdictBadge,
 } from '../../components/assessment/TestResultsPanel';
 import { ScoreSummaryCard } from '../../components/assessment/ScoreSummaryCard';
+import { McqQuestionPanel } from '../../components/assessment/McqQuestionPanel';
+import { MsqQuestionPanel } from '../../components/assessment/MsqQuestionPanel';
+import { AssessmentSubmitModal } from '../../components/assessment/AssessmentSubmitModal';
 import { AlertBanner } from '../../components/ui/AlertBanner';
 import { Button } from '../../components/ui/Button';
 import { assessmentService } from '../../services/assessmentService';
@@ -38,17 +41,21 @@ import { extractApiErrorMessage } from '../../services/api';
 import type {
   ActiveAssessmentSession,
   AiHintItem,
-  AiHintLevel,
-  AssessmentResultDetail,
   CodeRunResponse,
   CodingQuestion,
-  QuestionPerformanceItem,
   ScoreSummary,
   SupportedLanguage,
 } from '../../types/assessment';
 
 interface WorkspaceLocationState {
   session?: ActiveAssessmentSession;
+}
+
+interface CandidateAnswer {
+  selected_option?: string;
+  selected_options?: string[];
+  source_code?: string;
+  language?: string;
 }
 
 function makeDraftKey(questionId: string, language: SupportedLanguage): string {
@@ -64,6 +71,10 @@ function makeSubmissionSnapshot(
 
 function getDraftStorageKey(assessmentId: string): string {
   return `gatecode_coding_drafts_${assessmentId}`;
+}
+
+function getAnswersStorageKey(assessmentId: string): string {
+  return `gatecode_candidate_answers_${assessmentId}`;
 }
 
 function readPersistedDrafts(assessmentId?: string): Record<string, string> {
@@ -86,7 +97,7 @@ function readPersistedDrafts(assessmentId?: string): Record<string, string> {
       return clean;
     }
   } catch {
-    // Ignore storage read errors in restricted browser contexts
+    // Ignore storage read errors
   }
   return {};
 }
@@ -100,6 +111,40 @@ function writePersistedDrafts(
     sessionStorage.setItem(
       getDraftStorageKey(assessmentId),
       JSON.stringify(drafts)
+    );
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function readPersistedAnswers(assessmentId?: string): Record<string, CandidateAnswer> {
+  if (!assessmentId) return {};
+  try {
+    const raw = sessionStorage.getItem(getAnswersStorageKey(assessmentId));
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
+      return parsed as Record<string, CandidateAnswer>;
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return {};
+}
+
+function writePersistedAnswers(
+  assessmentId: string | undefined,
+  answers: Record<string, CandidateAnswer>
+): void {
+  if (!assessmentId) return;
+  try {
+    sessionStorage.setItem(
+      getAnswersStorageKey(assessmentId),
+      JSON.stringify(answers)
     );
   } catch {
     // Ignore storage quota errors
@@ -134,6 +179,15 @@ export function AssessmentWorkspacePage() {
   const [codeDrafts, setCodeDrafts] = useState<Record<string, string>>(() =>
     readPersistedDrafts(initialSession?.assessment_id ?? assessmentId)
   );
+
+  const [candidateAnswers, setCandidateAnswers] = useState<Record<string, CandidateAnswer>>(() => {
+    const persisted = readPersistedAnswers(initialSession?.assessment_id ?? assessmentId);
+    return { ...(initialSession?.saved_answers || {}), ...persisted };
+  });
+
+  const [isSavingAnswer, setIsSavingAnswer] = useState(false);
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
     initialSession?.remaining_seconds ??
       initialSession?.duration_seconds ??
@@ -147,7 +201,6 @@ export function AssessmentWorkspacePage() {
   const [executionError, setExecutionError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
-  // Synchronous mutex preventing rapid double-click duplicate POSTs before React re-renders
   const submittingLockRef = useRef(false);
   const hintPanelRef = useRef<HTMLElement | null>(null);
 
@@ -170,6 +223,7 @@ export function AssessmentWorkspacePage() {
 
   const questions = session?.questions ?? [];
   const activeQuestion = questions[activeQuestionIdx] ?? null;
+  const activeQType = activeQuestion?.question_type || 'coding';
 
   const activeStarterCode = useMemo(
     () => resolveStarterCode(activeQuestion, language),
@@ -232,9 +286,24 @@ export function AssessmentWorkspacePage() {
     [hintsByQuestion]
   );
 
-  const submittedQuestionCount = Object.keys(submissionsByQuestion).length;
-  const allQuestionsSubmitted =
-    questions.length > 0 && submittedQuestionCount >= questions.length;
+  const effectiveAssessmentId = session?.assessment_id ?? assessmentId;
+
+  const isQuestionAnswered = useCallback((q: CodingQuestion): boolean => {
+    const qid = q.question_id;
+    const ans = candidateAnswers[qid];
+    const type = q.question_type || 'coding';
+    if (type === 'mcq') {
+      return Boolean(ans?.selected_option);
+    }
+    if (type === 'msq') {
+      return Boolean(ans?.selected_options && ans.selected_options.length > 0);
+    }
+    return Boolean(submissionsByQuestion[qid] || (ans?.source_code && ans.source_code.trim().length > 10));
+  }, [candidateAnswers, submissionsByQuestion]);
+
+  const answeredQuestionsCount = useMemo(() => {
+    return questions.filter(isQuestionAnswered).length;
+  }, [questions, isQuestionAnswered]);
 
   const totalDurationSeconds = session?.duration_seconds ?? 3600;
   const elapsedSeconds = Math.max(0, totalDurationSeconds - remainingSeconds);
@@ -248,10 +317,16 @@ export function AssessmentWorkspacePage() {
         : await assessmentService.getActiveSession();
       setSession(fetched);
       if (fetched) {
-        const persisted = readPersistedDrafts(fetched.assessment_id);
-        if (Object.keys(persisted).length > 0) {
-          setCodeDrafts((prev) => ({ ...persisted, ...prev }));
+        const persistedDrafts = readPersistedDrafts(fetched.assessment_id);
+        if (Object.keys(persistedDrafts).length > 0) {
+          setCodeDrafts((prev) => ({ ...persistedDrafts, ...prev }));
         }
+        const persistedAnswers = readPersistedAnswers(fetched.assessment_id);
+        setCandidateAnswers((prev) => ({
+          ...(fetched.saved_answers || {}),
+          ...persistedAnswers,
+          ...prev,
+        }));
         const defaultLang = fetched.allowed_languages?.[0] ?? 'python';
         setLanguage(defaultLang);
         setActiveQuestionIdx(0);
@@ -280,7 +355,6 @@ export function AssessmentWorkspacePage() {
     }
   }, [assessmentId, initialSession, fetchSession]);
 
-  // Hydrate previously requested AI hints for the loaded assessment session
   useEffect(() => {
     const loadedAssessmentId = session?.assessment_id;
     if (!loadedAssessmentId || isLoadingSession || isAiAssistantDisabled) return;
@@ -313,7 +387,7 @@ export function AssessmentWorkspacePage() {
           return next;
         });
       } catch {
-        // Optional hint history hydration fails silently if assistant history route is offline
+        // Optional
       }
     })();
 
@@ -321,9 +395,7 @@ export function AssessmentWorkspacePage() {
       cancelled = true;
       abortController.abort();
     };
-  }, [session?.assessment_id, isLoadingSession]);
-
-  const effectiveAssessmentId = session?.assessment_id ?? assessmentId;
+  }, [session?.assessment_id, isLoadingSession, isAiAssistantDisabled]);
 
   const handleOpenAiHints = () => {
     if (hintPanelRef.current) {
@@ -334,6 +406,67 @@ export function AssessmentWorkspacePage() {
         });
       }
       hintPanelRef.current.focus();
+    }
+  };
+
+  const handleSelectMcqOption = async (questionId: string, optionId: string) => {
+    if (isTimeExpired) return;
+    const updated = {
+      ...candidateAnswers,
+      [questionId]: {
+        ...candidateAnswers[questionId],
+        selected_option: optionId,
+      },
+    };
+    setCandidateAnswers(updated);
+    writePersistedAnswers(effectiveAssessmentId, updated);
+
+    if (effectiveAssessmentId) {
+      setIsSavingAnswer(true);
+      try {
+        await assessmentService.saveAnswer({
+          assessmentId: effectiveAssessmentId,
+          questionId,
+          selectedOption: optionId,
+        });
+      } catch {
+        // Non-fatal
+      } finally {
+        setIsSavingAnswer(false);
+      }
+    }
+  };
+
+  const handleToggleMsqOption = async (questionId: string, optionId: string) => {
+    if (isTimeExpired) return;
+    const currentList = candidateAnswers[questionId]?.selected_options ?? [];
+    const nextList = currentList.includes(optionId)
+      ? currentList.filter((item) => item !== optionId)
+      : [...currentList, optionId];
+
+    const updated = {
+      ...candidateAnswers,
+      [questionId]: {
+        ...candidateAnswers[questionId],
+        selected_options: nextList,
+      },
+    };
+    setCandidateAnswers(updated);
+    writePersistedAnswers(effectiveAssessmentId, updated);
+
+    if (effectiveAssessmentId) {
+      setIsSavingAnswer(true);
+      try {
+        await assessmentService.saveAnswer({
+          assessmentId: effectiveAssessmentId,
+          questionId,
+          selectedOptions: nextList,
+        });
+      } catch {
+        // Non-fatal
+      } finally {
+        setIsSavingAnswer(false);
+      }
     }
   };
 
@@ -348,6 +481,17 @@ export function AssessmentWorkspacePage() {
       writePersistedDrafts(effectiveAssessmentId, updated);
       return updated;
     });
+
+    const updatedAnswers = {
+      ...candidateAnswers,
+      [activeQuestion.question_id]: {
+        ...candidateAnswers[activeQuestion.question_id],
+        source_code: nextCode,
+        language,
+      },
+    };
+    setCandidateAnswers(updatedAnswers);
+    writePersistedAnswers(effectiveAssessmentId, updatedAnswers);
   };
 
   const handleLanguageChange = (nextLang: SupportedLanguage) => {
@@ -460,10 +604,9 @@ export function AssessmentWorkspacePage() {
       });
 
       if (response.run_results) {
-        const runData = response.run_results;
         setRunsByQuestion((prev) => ({
           ...prev,
-          [targetQuestionId]: runData,
+          [targetQuestionId]: response.run_results!,
         }));
       }
 
@@ -476,6 +619,8 @@ export function AssessmentWorkspacePage() {
         ...prev,
         [targetQuestionId]: snapshotBeingSubmitted,
       }));
+
+
     } catch (error) {
       setSubmissionError(
         extractApiErrorMessage(
@@ -487,138 +632,6 @@ export function AssessmentWorkspacePage() {
       submittingLockRef.current = false;
       setIsSubmitting(false);
     }
-  };
-
-  /**
-   * Builds a strictly real result summary from actual backend-graded submissions
-   * when navigating to the results page if a separate /complete endpoint returns 404.
-   * Never fabricates execution times, memory metrics, or AI efficiency scores.
-   */
-  const buildVerifiedSessionResult = (): AssessmentResultDetail | null => {
-    if (!session || submittedQuestionCount === 0) return null;
-
-    const allLevelsSet = new Set<AiHintLevel>();
-
-    const questionPerformance: QuestionPerformanceItem[] =
-      session.questions.map((q) => {
-        const sub = submissionsByQuestion[q.question_id];
-        const run = runsByQuestion[q.question_id];
-        const qHintList = hintsByQuestion[q.question_id] ?? [];
-        const qLevels = Array.from(
-          new Set(qHintList.map((h) => h.level))
-        ).sort((a, b) => a - b) as AiHintLevel[];
-
-        for (const lvl of qLevels) {
-          allLevelsSet.add(lvl);
-        }
-
-        if (!sub) {
-          const publicTotal = q.public_test_cases.length;
-          return {
-            question_id: q.question_id,
-            title: q.title,
-            difficulty: q.difficulty,
-            verdict: 'PENDING',
-            score: 0,
-            passed_tests: 0,
-            failed_tests: publicTotal,
-            total_tests: publicTotal,
-            hints_used: qHintList.length,
-            hint_levels_used: qLevels.length > 0 ? qLevels : undefined,
-          };
-        }
-
-        const failed =
-          sub.failed_tests ?? Math.max(0, sub.total_tests - sub.passed_tests);
-
-        return {
-          question_id: q.question_id,
-          title: q.title,
-          difficulty: q.difficulty,
-          verdict: sub.overall_verdict,
-          score: sub.overall_score,
-          passed_tests: sub.passed_tests,
-          failed_tests: failed,
-          total_tests: sub.total_tests,
-          execution_time_ms: sub.execution_time_ms ?? run?.total_time_ms,
-          memory_used_mb: sub.memory_used_mb ?? run?.memory_used_mb,
-          hints_used: qHintList.length,
-          hint_levels_used: qLevels.length > 0 ? qLevels : undefined,
-          detected_time_complexity: sub.efficiency?.detected_time_complexity,
-        };
-      });
-
-    const totalCorrect = questionPerformance.reduce(
-      (sum, item) => sum + item.passed_tests,
-      0
-    );
-    const totalFailed = questionPerformance.reduce(
-      (sum, item) => sum + item.failed_tests,
-      0
-    );
-    const totalCases = questionPerformance.reduce(
-      (sum, item) => sum + item.total_tests,
-      0
-    );
-    const avgScore =
-      questionPerformance.reduce((sum, item) => sum + item.score, 0) /
-      Math.max(1, session.questions.length);
-
-    const submittedList = Object.values(submissionsByQuestion);
-    const avgDeterministic =
-      submittedList.reduce((sum, item) => sum + item.deterministic_score, 0) /
-      Math.max(1, session.questions.length);
-
-    // Only pass through backend AI efficiency score if explicitly returned on submission summaries
-    const backendEfficiencyValues = submittedList
-      .map((item) => item.ai_efficiency_score)
-      .filter((val): val is number => typeof val === 'number');
-    const passthroughBackendEfficiency =
-      backendEfficiencyValues.length === 1
-        ? backendEfficiencyValues[0]
-        : null;
-
-    const execTimes = questionPerformance
-      .map((item) => item.execution_time_ms)
-      .filter((ms): ms is number => typeof ms === 'number');
-    const memUsages = questionPerformance
-      .map((item) => item.memory_used_mb)
-      .filter((mb): mb is number => typeof mb === 'number');
-
-    const sortedAllLevels = Array.from(allLevelsSet).sort(
-      (a, b) => a - b
-    ) as AiHintLevel[];
-
-    return {
-      assessment_id: session.assessment_id,
-      assessment_title: session.title,
-      completion_status: isTimeExpired
-        ? 'expired'
-        : allQuestionsSubmitted
-        ? 'completed'
-        : 'partially_completed',
-      final_score: avgScore,
-      deterministic_score: avgDeterministic,
-      coding_score: avgDeterministic,
-      ai_efficiency_score: passthroughBackendEfficiency,
-      correct_test_cases: totalCorrect,
-      failed_test_cases: totalFailed,
-      total_test_cases: totalCases,
-      time_taken_seconds: elapsedSeconds,
-      time_limit_seconds: session.duration_seconds,
-      total_execution_time_ms:
-        execTimes.length > 0
-          ? execTimes.reduce((acc, ms) => acc + ms, 0)
-          : undefined,
-      peak_memory_mb:
-        memUsages.length > 0 ? Math.max(...memUsages) : undefined,
-      total_hints_used: totalSessionHintsUsed,
-      hint_levels_used:
-        sortedAllLevels.length > 0 ? sortedAllLevels : undefined,
-      hints_viewed: totalSessionHintsUsed > 0,
-      completed_at: new Date().toISOString(),
-      question_performance: questionPerformance,
-    };
   };
 
   const handleFinishAndViewResults = async () => {
@@ -640,21 +653,8 @@ export function AssessmentWorkspacePage() {
         totalHintsUsed: totalSessionHintsUsed,
       });
       navigate(resultsPath, { state: { result: apiResult } });
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        const verifiedResult = buildVerifiedSessionResult();
-        navigate(resultsPath, {
-          state: verifiedResult ? { result: verifiedResult } : undefined,
-        });
-        return;
-      }
-
-      const verifiedResult = buildVerifiedSessionResult();
-      if (verifiedResult) {
-        navigate(resultsPath, { state: { result: verifiedResult } });
-      } else {
-        navigate(resultsPath);
-      }
+    } catch {
+      navigate(resultsPath);
     } finally {
       setIsFinishing(false);
     }
@@ -662,12 +662,14 @@ export function AssessmentWorkspacePage() {
 
   const runDisabled =
     !activeQuestion ||
+    activeQType !== 'coding' ||
     isTimeExpired ||
     isRunningTests ||
     isSubmitting ||
     !activeCode.trim();
 
-  const submitDisabled = runDisabled || isDuplicateSubmission;
+  const submitDisabled =
+    runDisabled || isDuplicateSubmission || activeQType !== 'coding';
 
   const instructionsPath =
     session?.assessment_id || assessmentId
@@ -680,7 +682,7 @@ export function AssessmentWorkspacePage() {
     <DashboardShell role="student" fullBleed>
       <div className="flex flex-1 flex-col">
         {/* Workspace Control Bar */}
-        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
+        <div className="border-b border-slate-200 bg-white px-4 py-3 sm:px-6 lg:px-8 shadow-xs">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <Link
@@ -695,10 +697,11 @@ export function AssessmentWorkspacePage() {
                 |
               </span>
 
-              <h1 className="text-sm font-semibold text-slate-900">
-                {session?.title || 'Adaptive Assessment Workspace'}
+              <h1 className="text-sm font-semibold text-slate-900 truncate max-w-[200px] sm:max-w-xs">
+                {session?.title || 'Dynamic Assessment Workspace'}
               </h1>
 
+              {/* Question Navigation Tabs */}
               {questions.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <button
@@ -717,10 +720,10 @@ export function AssessmentWorkspacePage() {
                     className="flex items-center gap-1 rounded-lg bg-slate-100 p-1"
                   >
                     {questions.map((q, idx) => {
-                      const isSubmitted = Boolean(
-                        submissionsByQuestion[q.question_id]
-                      );
+                      const isAnswered = isQuestionAnswered(q);
                       const isActive = idx === activeQuestionIdx;
+                      const qType = q.question_type || 'coding';
+                      const typeLabel = qType === 'mcq' ? 'MCQ' : qType === 'msq' ? 'MSQ' : 'Code';
 
                       return (
                         <button
@@ -729,17 +732,28 @@ export function AssessmentWorkspacePage() {
                           type="button"
                           aria-selected={isActive}
                           onClick={() => handleQuestionSwitch(idx)}
-                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer transition-colors ${
                             isActive
-                              ? 'bg-white text-slate-900 shadow-2xs'
+                              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
                           <span>Q{idx + 1}</span>
-                          {isSubmitted && (
+                          <span
+                            className={`text-[9px] font-bold px-1 py-0.5 rounded uppercase ${
+                              qType === 'mcq'
+                                ? 'bg-blue-100 text-blue-800'
+                                : qType === 'msq'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {typeLabel}
+                          </span>
+                          {isAnswered && (
                             <CheckCircle2
-                              className="h-3 w-3 text-emerald-600"
-                              aria-label="Submitted"
+                              className="h-3 w-3 text-emerald-600 shrink-0"
+                              aria-label="Answered"
                             />
                           )}
                         </button>
@@ -760,11 +774,14 @@ export function AssessmentWorkspacePage() {
               )}
             </div>
 
+            {/* Right Action Controls */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-1.5 text-xs font-semibold text-blue-800">
-                <Code2 className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
-                <span>Selected: {LANGUAGE_LABELS[language]}</span>
-              </span>
+              {activeQType === 'coding' && (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-2.5 py-1.5 text-xs font-semibold text-blue-800">
+                  <Code2 className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
+                  <span>Selected: {LANGUAGE_LABELS[language]}</span>
+                </span>
+              )}
 
               <AssessmentTimer
                 initialSeconds={
@@ -772,9 +789,7 @@ export function AssessmentWorkspacePage() {
                   session?.duration_seconds ??
                   3600
                 }
-                isRunning={Boolean(
-                  session && activeQuestion && !allQuestionsSubmitted
-                )}
+                isRunning={Boolean(session && activeQuestion)}
                 onTick={(nextRemaining) => setRemainingSeconds(nextRemaining)}
                 onExpire={() => setIsTimeExpired(true)}
               />
@@ -793,63 +808,56 @@ export function AssessmentWorkspacePage() {
                   />
                 }
               >
-                Sync Session
+                Sync
               </Button>
 
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={runDisabled}
-                isLoading={isRunningTests}
-                loadingText="Running..."
-                onClick={() => void handleRunPublicTests()}
-                leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
-              >
-                Run Code
-              </Button>
+              {activeQType === 'coding' && (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={runDisabled}
+                    isLoading={isRunningTests}
+                    loadingText="Running..."
+                    onClick={() => void handleRunPublicTests()}
+                    leftIcon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+                  >
+                    Run Code
+                  </Button>
 
-              <Button
-                type="button"
-                variant="accent"
-                size="sm"
-                disabled={submitDisabled}
-                isLoading={isSubmitting}
-                loadingText="Submitting..."
-                title={
-                  isDuplicateSubmission
-                    ? 'This exact solution has already been submitted. Modify code or switch language to resubmit.'
-                    : 'Submit final solution for deterministic grading'
-                }
-                onClick={() => void handleSubmitSolution()}
-                leftIcon={
-                  isDuplicateSubmission ? (
-                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
-                  )
-                }
-              >
-                {isDuplicateSubmission
-                  ? 'Solution Submitted'
-                  : 'Submit Solution'}
-              </Button>
-
-              {(submittedQuestionCount > 0 || isTimeExpired) && (
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  isLoading={isFinishing}
-                  loadingText="Loading Results..."
-                  onClick={() => void handleFinishAndViewResults()}
-                  leftIcon={
-                    <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
-                  }
-                >
-                  View Results
-                </Button>
+                  <Button
+                    type="button"
+                    variant="accent"
+                    size="sm"
+                    disabled={submitDisabled}
+                    isLoading={isSubmitting}
+                    loadingText="Submitting..."
+                    onClick={() => void handleSubmitSolution()}
+                    leftIcon={
+                      isDuplicateSubmission ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                      )
+                    }
+                  >
+                    {isDuplicateSubmission
+                      ? 'Solution Submitted'
+                      : 'Submit Solution'}
+                  </Button>
+                </>
               )}
+
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => setIsSubmitModalOpen(true)}
+                leftIcon={<BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />}
+              >
+                Finish Assessment
+              </Button>
             </div>
           </div>
         </div>
@@ -869,131 +877,262 @@ export function AssessmentWorkspacePage() {
             <AlertBanner
               variant="error"
               title="Assessment Time Expired"
-              message="The allotted time for this assessment session has ended. Further code execution is locked."
+              message="The allotted time for this assessment session has ended. All inputs and code execution are locked."
             />
           )}
 
-          <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
-            {/* Left Column: Coding Problem Specification + AI Hints */}
-            <div className="lg:col-span-5 space-y-5">
-              <CodingQuestionPanel
-                question={activeQuestion}
-                questionIndex={activeQuestionIdx}
-                totalQuestions={questions.length}
-                hintsUsedForQuestion={activeQuestionHints.length}
-                maxHintsPerQuestion={MAX_HINTS_PER_QUESTION}
-                onOpenAiHints={isAiAssistantDisabled ? undefined : handleOpenAiHints}
-              />
-
-              {!isAiAssistantDisabled ? (
-                <AiHintPanel
-                  panelRef={hintPanelRef}
-                  assessmentId={session?.assessment_id}
-                  questionId={activeQuestion?.question_id ?? null}
-                  questionTitle={activeQuestion?.title}
-                  language={language}
-                  currentCode={activeCode}
-                  hintsForQuestion={activeQuestionHints}
-                  sessionHintHistory={sessionHintHistory}
-                  totalSessionHintsUsed={totalSessionHintsUsed}
-                  disabled={isTimeExpired}
-                  onHintReceived={handleHintReceived}
-                />
-              ) : (
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 text-sm text-slate-600 dark:text-slate-400">
-                  <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200 mb-1">
-                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                    AI Assistant Disabled
-                  </div>
-                  AI assistance is strictly disabled for Novice/Easy tier assessments to evaluate independent core coding competency.
-                </div>
-              )}
-            </div>
-
-            {/* Right Column: Monaco Editor + Submission Status + Test Runner + Score Summary */}
-            <div className="lg:col-span-7 space-y-5">
-              <div className="h-[450px]">
-                <CodeEditorPanel
-                  language={language}
-                  allowedLanguages={session?.allowed_languages}
-                  code={activeCode}
-                  hasBackendStarter={hasBackendStarter}
-                  isModifiedFromStarter={isModifiedFromStarter}
-                  readOnly={isTimeExpired}
-                  onLanguageChange={handleLanguageChange}
-                  onCodeChange={handleCodeChange}
-                  onResetStarterCode={handleResetStarter}
-                />
-              </div>
-
-              {/* Submission Status & Network Error Feedback */}
-              {submissionError && (
-                <AlertBanner
-                  variant="error"
-                  title="Submission Failed"
-                  message={submissionError}
-                  onDismiss={() => setSubmissionError(null)}
-                />
-              )}
-
-              {isSubmitting && (
-                <div
-                  role="status"
-                  className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs font-medium text-blue-900"
-                >
-                  <Loader2
-                    className="h-4 w-4 animate-spin text-blue-600"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    Submission Status: Grading final solution against deterministic test suites...
-                  </span>
-                </div>
-              )}
-
-              {!isSubmitting && activeScoreSummary && (
-                <div
-                  role="status"
-                  className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-emerald-950">
-                    <CheckCircle2
-                      className="h-4 w-4 shrink-0 text-emerald-600"
-                      aria-hidden="true"
+          {activeQuestion && (
+            <>
+              {activeQType === 'mcq' ? (
+                <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
+                  <div className="lg:col-span-8 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                    <McqQuestionPanel
+                      question={activeQuestion}
+                      selectedOption={
+                        candidateAnswers[activeQuestion.question_id]?.selected_option
+                      }
+                      onSelectOption={(optId: string) =>
+                        handleSelectMcqOption(activeQuestion.question_id, optId)
+                      }
+                      isSaving={isSavingAnswer}
                     />
-                    <span className="font-semibold">
-                      Submission Status: Graded (
-                      {Math.round(activeScoreSummary.overall_score)} / 100)
-                    </span>
-                    <span className="text-emerald-800">
-                      &middot;{' '}
-                      {isDuplicateSubmission
-                        ? 'Current snapshot submitted (edit code to resubmit)'
-                        : 'Draft modified since last submission'}
-                    </span>
                   </div>
-                  <VerdictBadge verdict={activeScoreSummary.overall_verdict} />
+
+                  <div className="lg:col-span-4 space-y-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                          <ListChecks className="w-4 h-4 text-blue-600" />
+                          <span>Round 1: Multiple Choice</span>
+                        </h3>
+                        <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                          {answeredQuestionsCount} of {questions.length} answered
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Single correct answer questions grounded in your claimed portfolio skills. Select one option and navigate to the next question.
+                      </p>
+
+                      <div className="pt-2 flex items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={activeQuestionIdx === 0}
+                          onClick={() => handleQuestionSwitch(activeQuestionIdx - 1)}
+                          leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
+                        >
+                          Previous
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          disabled={activeQuestionIdx >= questions.length - 1}
+                          onClick={() => handleQuestionSwitch(activeQuestionIdx + 1)}
+                          rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
+                        >
+                          Next Question
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : activeQType === 'msq' ? (
+                <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
+                  <div className="lg:col-span-8 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                    <MsqQuestionPanel
+                      question={activeQuestion}
+                      selectedOptions={
+                        candidateAnswers[activeQuestion.question_id]?.selected_options ?? []
+                      }
+                      onToggleOption={(optId: string) =>
+                        handleToggleMsqOption(activeQuestion.question_id, optId)
+                      }
+                      isSaving={isSavingAnswer}
+                    />
+                  </div>
+
+                  <div className="lg:col-span-4 space-y-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-2xs space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                          <ListChecks className="w-4 h-4 text-purple-600" />
+                          <span>Round 2: Multiple Select</span>
+                        </h3>
+                        <span className="text-xs font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
+                          {answeredQuestionsCount} of {questions.length} answered
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Multiple correct answer questions. Select <strong>all</strong> matching choices. Exact match evaluation is applied upon submission.
+                      </p>
+
+                      <div className="pt-2 flex items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={activeQuestionIdx === 0}
+                          onClick={() => handleQuestionSwitch(activeQuestionIdx - 1)}
+                          leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
+                        >
+                          Previous
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          disabled={activeQuestionIdx >= questions.length - 1}
+                          onClick={() => handleQuestionSwitch(activeQuestionIdx + 1)}
+                          rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
+                        >
+                          Next Question
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-5 lg:grid-cols-12 lg:items-start">
+                  {/* Left Column: Coding Problem Specification + AI Hints */}
+                  <div className="lg:col-span-5 space-y-5">
+                    <CodingQuestionPanel
+                      question={activeQuestion}
+                      questionIndex={activeQuestionIdx}
+                      totalQuestions={questions.length}
+                      hintsUsedForQuestion={activeQuestionHints.length}
+                      maxHintsPerQuestion={MAX_HINTS_PER_QUESTION}
+                      onOpenAiHints={
+                        isAiAssistantDisabled ? undefined : handleOpenAiHints
+                      }
+                    />
+
+                    {!isAiAssistantDisabled ? (
+                      <AiHintPanel
+                        panelRef={hintPanelRef}
+                        assessmentId={session?.assessment_id}
+                        questionId={activeQuestion?.question_id ?? null}
+                        questionTitle={activeQuestion?.title}
+                        language={language}
+                        currentCode={activeCode}
+                        hintsForQuestion={activeQuestionHints}
+                        sessionHintHistory={sessionHintHistory}
+                        totalSessionHintsUsed={totalSessionHintsUsed}
+                        disabled={isTimeExpired}
+                        onHintReceived={handleHintReceived}
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        <div className="flex items-center gap-2 font-medium text-slate-800 mb-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                          AI Assistant Disabled
+                        </div>
+                        AI assistance is strictly disabled for Novice/Easy tier assessments to evaluate independent core coding competency.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column: Monaco Editor + Submission Status + Test Runner + Score Summary */}
+                  <div className="lg:col-span-7 space-y-5">
+                    <div className="h-[450px]">
+                      <CodeEditorPanel
+                        language={language}
+                        allowedLanguages={session?.allowed_languages}
+                        code={activeCode}
+                        hasBackendStarter={hasBackendStarter}
+                        isModifiedFromStarter={isModifiedFromStarter}
+                        readOnly={isTimeExpired}
+                        onLanguageChange={handleLanguageChange}
+                        onCodeChange={handleCodeChange}
+                        onResetStarterCode={handleResetStarter}
+                      />
+                    </div>
+
+                    {submissionError && (
+                      <AlertBanner
+                        variant="error"
+                        title="Submission Failed"
+                        message={submissionError}
+                        onDismiss={() => setSubmissionError(null)}
+                      />
+                    )}
+
+                    {isSubmitting && (
+                      <div
+                        role="status"
+                        className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-xs font-medium text-blue-900"
+                      >
+                        <Loader2
+                          className="h-4 w-4 animate-spin text-blue-600"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          Submission Status: Grading final solution against deterministic test suites...
+                        </span>
+                      </div>
+                    )}
+
+                    {!isSubmitting && activeScoreSummary && (
+                      <div
+                        role="status"
+                        className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-emerald-950">
+                          <CheckCircle2
+                            className="h-4 w-4 shrink-0 text-emerald-600"
+                            aria-hidden="true"
+                          />
+                          <span className="font-semibold">
+                            Submission Status: Graded (
+                            {Math.round(activeScoreSummary.overall_score)} / 100)
+                          </span>
+                          <span className="text-emerald-800">
+                            &middot;{' '}
+                            {isDuplicateSubmission
+                              ? 'Current snapshot submitted'
+                              : 'Draft modified since last submission'}
+                          </span>
+                        </div>
+                        <VerdictBadge verdict={activeScoreSummary.overall_verdict} />
+                      </div>
+                    )}
+
+                    <TestResultsPanel
+                      runResponse={activeRunResponse}
+                      isRunning={isRunningTests || isSubmitting}
+                      runningLabel={
+                        isSubmitting
+                          ? 'Submitting and grading final solution against test suites...'
+                          : 'Executing code against public test cases in isolated sandbox...'
+                      }
+                      errorMessage={executionError}
+                    />
+
+                    {activeScoreSummary && (
+                      <ScoreSummaryCard summary={activeScoreSummary} />
+                    )}
+                  </div>
                 </div>
               )}
-
-              <TestResultsPanel
-                runResponse={activeRunResponse}
-                isRunning={isRunningTests || isSubmitting}
-                runningLabel={
-                  isSubmitting
-                    ? 'Submitting and grading final solution against test suites...'
-                    : 'Executing code against public test cases in isolated sandbox...'
-                }
-                errorMessage={executionError}
-              />
-
-              {activeScoreSummary && (
-                <ScoreSummaryCard summary={activeScoreSummary} />
-              )}
-            </div>
-          </div>
+            </>
+          )}
         </div>
       </div>
+
+      <AssessmentSubmitModal
+        isOpen={isSubmitModalOpen}
+        onClose={() => setIsSubmitModalOpen(false)}
+        onConfirmSubmit={() => void handleFinishAndViewResults()}
+        isSubmitting={isFinishing}
+        questions={questions}
+        answers={candidateAnswers}
+        onNavigateToQuestion={(idx: number) => handleQuestionSwitch(idx)}
+      />
     </DashboardShell>
   );
 }

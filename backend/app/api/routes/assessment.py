@@ -9,6 +9,7 @@ from backend.app.core.security import AuthException
 from backend.app.database.supabase import get_supabase_client
 from backend.app.grading.grading_engine import GradingEngine
 from backend.app.schemas.assessment import (
+    AssessmentAnswerRequest,
     AssessmentApiResponse,
     AssessmentGenerateRequest,
 )
@@ -318,6 +319,33 @@ def start_specific_assessment(
 
 
 @router.post(
+    "/{assessment_id}/answer",
+    summary="Save candidate answer for an assessment question",
+)
+def save_assessment_answer(
+    assessment_id: str,
+    payload: AssessmentAnswerRequest,
+    current_user: Dict[str, Any] = Depends(require_student_user),
+    client: Client = Depends(get_supabase_client),
+) -> JSONResponse:
+    """Records candidate's option choice or coding draft for a specific question."""
+    result = AssessmentService.save_candidate_answer(
+        client=client,
+        assessment_id=assessment_id,
+        user_id=current_user["id"],
+        question_id=payload.question_id,
+        selected_option=payload.selected_option,
+        selected_options=payload.selected_options,
+        source_code=payload.source_code,
+        language=payload.language,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=result,
+    )
+
+
+@router.post(
     "/{assessment_id}/complete",
     summary="Complete and finalize technical assessment",
 )
@@ -343,7 +371,11 @@ def complete_assessment_endpoint(
     except Exception:
         pass
 
-    results = GradingEngine.get_assessment_results(client, assessment_id, current_user)
+    results = AssessmentService.complete_assessment(
+        client=client,
+        assessment_id=assessment_id,
+        user_id=current_user["id"],
+    )
     results["completion_status"] = "completed"
     results["status"] = "completed"
     results["completed_at"] = now_iso
@@ -381,7 +413,7 @@ def get_assessment_results(
         requesting_user=current_user,
     )
 
-    results = GradingEngine.get_assessment_results(
+    results = AssessmentService.get_assessment_results(
         client=client,
         assessment_id=assessment_id,
         requesting_user=current_user,

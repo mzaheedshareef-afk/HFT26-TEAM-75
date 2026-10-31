@@ -15,6 +15,9 @@ import type {
   PublicTestCase,
   QuestionDifficulty,
   QuestionPerformanceItem,
+  QuestionType,
+  QuestionOption,
+  EvaluatedQuestionSummary,
   ScoreSummary,
   SupportedLanguage,
   TestCaseRunResult,
@@ -330,8 +333,25 @@ export function normalizeCodingQuestion(
     }
   }
 
+  const rawQType = typeof raw.question_type === 'string' ? raw.question_type.trim().toLowerCase() : 'coding';
+  const questionType: QuestionType = rawQType === 'mcq' || rawQType === 'msq' ? rawQType : 'coding';
+
+  const rawOptions = Array.isArray(raw.options) ? raw.options : [];
+  const options: QuestionOption[] = rawOptions.filter(isRecord).map((opt) => ({
+    id: String(opt.id || '').trim().toUpperCase(),
+    text: String(opt.text || opt.label || '').trim(),
+  }));
+
+  const marks = typeof raw.marks === 'number' ? raw.marks : (questionType === 'mcq' ? 2 : questionType === 'msq' ? 3 : 10);
+  const portfolioSkillReference = typeof raw.portfolio_skill_reference === 'string' ? raw.portfolio_skill_reference : undefined;
+
   return {
     question_id: questionId,
+    question_type: questionType,
+    options: options.length > 0 ? options : undefined,
+    marks,
+    portfolio_skill_reference: portfolioSkillReference,
+    topic: typeof raw.topic === 'string' ? raw.topic : undefined,
     title:
       (typeof raw.title === 'string' && raw.title) ||
       `Coding Challenge ${index + 1}`,
@@ -734,8 +754,14 @@ export function normalizeAssessmentSession(
   );
   const topics = extractTopics(raw, questions);
 
+  const savedAnswers = isRecord(raw.saved_answers) ? raw.saved_answers as any : undefined;
+
   return {
     assessment_id: assessmentId,
+    mcq_count: typeof raw.mcq_count === 'number' ? raw.mcq_count : questions.filter(q => q.question_type === 'mcq').length,
+    msq_count: typeof raw.msq_count === 'number' ? raw.msq_count : questions.filter(q => q.question_type === 'msq').length,
+    coding_count: typeof raw.coding_count === 'number' ? raw.coding_count : questions.filter(q => q.question_type === 'coding').length,
+    saved_answers: savedAnswers,
     title:
       (typeof raw.title === 'string' && raw.title) ||
       'Personalized Technical Assessment',
@@ -842,6 +868,33 @@ export function normalizeAssessmentResult(
     rawStatus === 'in_progress'
       ? rawStatus
       : 'completed';
+
+  const rawEvaluated = Array.isArray(raw.questions) ? raw.questions : [];
+  const evaluatedQuestions: EvaluatedQuestionSummary[] = rawEvaluated.filter(isRecord).map((eq) => {
+    const rawOptions = Array.isArray(eq.options) ? eq.options : [];
+    const options: QuestionOption[] = rawOptions.filter(isRecord).map((opt) => ({
+      id: String(opt.id || '').trim().toUpperCase(),
+      text: String(opt.text || opt.label || '').trim(),
+    }));
+    return {
+      question_id: String(eq.question_id || eq.id || ''),
+      title: String(eq.title || 'Question'),
+      question_type: (eq.question_type === 'mcq' || eq.question_type === 'msq' ? eq.question_type : 'coding'),
+      topic: String(eq.topic || eq.domain || ''),
+      description: typeof eq.description === 'string' ? eq.description : undefined,
+      portfolio_skill_reference: typeof eq.portfolio_skill_reference === 'string' ? eq.portfolio_skill_reference : undefined,
+      marks_possible: typeof eq.marks === 'number' ? eq.marks : typeof eq.marks_possible === 'number' ? eq.marks_possible : 2,
+      marks_earned: typeof eq.marks_earned === 'number' ? eq.marks_earned : 0,
+      is_correct: Boolean(eq.is_correct),
+      explanation: typeof eq.explanation === 'string' ? eq.explanation : undefined,
+      selected_option: typeof eq.selected_option === 'string' ? eq.selected_option : undefined,
+      correct_answer: typeof eq.correct_answer === 'string' ? eq.correct_answer : undefined,
+      selected_options: Array.isArray(eq.selected_options) ? eq.selected_options.map(String) : undefined,
+      correct_answers: Array.isArray(eq.correct_answers) ? eq.correct_answers.map(String) : undefined,
+      options: options.length > 0 ? options : undefined,
+      submission_score: typeof eq.submission_score === 'number' ? eq.submission_score : undefined,
+    };
+  });
 
   const rawQuestions = Array.isArray(raw.question_performance)
     ? raw.question_performance
@@ -1025,11 +1078,20 @@ export function normalizeAssessmentResult(
       'Personalized Technical Assessment',
     completion_status: completionStatus,
     final_score:
-      typeof raw.final_score === 'number'
+      typeof raw.percentage === 'number'
+        ? raw.percentage
+        : typeof raw.final_score === 'number'
         ? raw.final_score
         : typeof raw.overall_score === 'number'
         ? raw.overall_score
         : 0,
+    mcq_score: typeof raw.mcq_score === 'number' ? raw.mcq_score : undefined,
+    mcq_max: typeof raw.mcq_max === 'number' ? raw.mcq_max : undefined,
+    msq_score: typeof raw.msq_score === 'number' ? raw.msq_score : undefined,
+    msq_max: typeof raw.msq_max === 'number' ? raw.msq_max : undefined,
+    coding_max: typeof raw.coding_max === 'number' ? raw.coding_max : undefined,
+    percentage: typeof raw.percentage === 'number' ? raw.percentage : undefined,
+    evaluated_questions: evaluatedQuestions.length > 0 ? evaluatedQuestions : undefined,
     deterministic_score: deterministicScore,
     coding_score: codingScore,
     ai_efficiency_score: extractBackendEfficiencyScore(raw),
@@ -1282,6 +1344,27 @@ export const assessmentService = {
   /**
    * Finalizes an assessment session and retrieves the comprehensive results report.
    */
+  async saveAnswer(payload: {
+    assessmentId: string;
+    questionId: string;
+    selectedOption?: string;
+    selectedOptions?: string[];
+    sourceCode?: string;
+    language?: string;
+  }): Promise<{ success: boolean; saved_at?: string }> {
+    const response = await api.post<{ success: boolean; saved_at?: string }>(
+      `/api/assessment/${encodeURIComponent(payload.assessmentId)}/answer`,
+      {
+        question_id: payload.questionId,
+        selected_option: payload.selectedOption,
+        selected_options: payload.selectedOptions,
+        source_code: payload.sourceCode,
+        language: payload.language,
+      }
+    );
+    return response.data;
+  },
+
   async completeAssessment(
     payload: CompleteAssessmentPayload
   ): Promise<AssessmentResultDetail> {
