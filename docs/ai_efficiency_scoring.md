@@ -75,3 +75,4 @@ $$\text{Final Score}_{\text{Novice}} = 1.00 \times \text{Coding Score}$$
 $$\text{AI Efficiency Score}_{\text{Novice}} = 100.0\quad (\text{Zero Penalty})$$
 
 This ensures that early-career candidates are evaluated solely on core programming fundamentals without synthetic AI score distortion.
+

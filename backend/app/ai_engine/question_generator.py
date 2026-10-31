@@ -278,7 +278,7 @@ def generate_portfolio_calibrated_fallback(
         difficulty=difficulty_preference,
         topic=q2_topic,
         domain=q2_domain,
-        target_skill="Concurrency",
+        target_skill=q2_skill,
         constraints=[
             "Time limit: 2000ms",
             "Memory limit: 256MB",
@@ -348,7 +348,7 @@ def generate_portfolio_calibrated_fallback(
             )
         },
         hidden_test_cases=[
-            {
+            {  
                 "test_case_id": "tc_hid_1",
                 "input": "[{'x': 1}, {'x': 1}, {'x': 1}], 'x'",
                 "expected_output": "[{'x': 1}]",
